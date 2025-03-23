@@ -1,10 +1,13 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <opencv2/opencv.hpp>
 
 #include "shader.h"
 #include "cube.h"
+#include "camera.h"
 
 #include <iostream>
 
@@ -15,6 +18,8 @@ double randDouble();
 // settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
+
+Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
 
 int main()
 {
@@ -54,7 +59,8 @@ int main()
 
     // build and compile shaders
     // -------------------------
-    Shader shader("../shaders/vertex.shader", "../shaders/fragment.shader");
+    //Shader shader("../shaders/vertex.shader", "../shaders/fragment.shader");
+    Shader shader("../shaders/basic_vertex.shader", "../shaders/fragment.shader");
 
     // generate a list of 100 cube locations/translation-vectors
     // ---------------------------------------------------------
@@ -79,6 +85,7 @@ int main()
 
     // store instance data in an array buffer
     // --------------------------------------
+    /**
     unsigned int cubeTfmVBO;
     glGenBuffers(1, &cubeTfmVBO);
     glBindBuffer(GL_ARRAY_BUFFER, cubeTfmVBO);
@@ -90,24 +97,32 @@ int main()
     glBindBuffer(GL_ARRAY_BUFFER, cubeColorVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * numCubes, &colors[0], GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+    */
 
     // set up vertex data (and buffer(s)) and configure vertex attributes
     // ------------------------------------------------------------------
-    Cube cube(4, 0.05);
-    std::vector<float> cubeVerts = cube.vertices;
-    std::vector<float> cubeNorms = cube.normals;
+    Cube cube(1, 1.0);
+    std::vector<glm::vec3> positions = cube.getPositions();
+    std::vector<glm::vec3> normals = cube.getNormals();
+    std::vector<uint32_t> indices = cube.getIndices();
+
+    std::vector<float> dataVec = cube.getInterleavedData();
+    float data[dataVec.size()];
+    std::copy(dataVec.begin(), dataVec.end(), data);
+
     unsigned int cubeVAO, cubeVBO;
     glGenVertexArrays(1, &cubeVAO);
     glGenBuffers(1, &cubeVBO);
-    glBindVertexArray(cubeVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
     // fill vertex buffer
-    glBufferSubData(GL_ARRAY_BUFFER, 0, cubeVerts.size(), cubeVerts.data()); // Vertices
-    glBufferSubData(GL_ARRAY_BUFFER, cubeVerts.size(), cubeNorms.size(), cubeNorms.data()); // Normals
+    glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
+    // position attribute
+    glBindVertexArray(cubeVAO);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0); // Vertices
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), 0); // Vertices
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3*sizeof(float))); // Normals
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)(cubeVerts.size())); // Normals
+    /**
     // set instanced transforms
     glEnableVertexAttribArray(2);
     glBindBuffer(GL_ARRAY_BUFFER, cubeTfmVBO); // this attribute comes from a different vertex buffer
@@ -120,7 +135,7 @@ int main()
     glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glVertexAttribDivisor(3, 1); // tell OpenGL this is an instanced vertex attribute.
-
+    */
 
     // render loop
     // -----------
@@ -134,8 +149,18 @@ int main()
 
         // draw instanced cubes
         shader.use();
+        // view/projection transformations
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+        glm::mat4 view = camera.GetViewMatrix();
+        shader.setMat4("projection", projection);
+        shader.setMat4("view", view);
+
+        // world transformation
+        glm::mat4 model = glm::mat4(1.0f);
+        shader.setMat4("model", model);
         glBindVertexArray(cubeVAO);
-        glDrawArraysInstanced(GL_TRIANGLES, 0, cube.vertices.size(), numCubes);
+        //glDrawArraysInstanced(GL_TRIANGLES, 0, cube.vertices.size(), numCubes);
+        glDrawArrays(GL_TRIANGLES, 0, cube.getNumIndices());
         glBindVertexArray(0);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)

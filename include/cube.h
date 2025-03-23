@@ -7,11 +7,20 @@
 class Cube {
     public:
         Cube(int subdivisions, float size);
-        std::vector<float> vertices;
-        std::vector<float> normals;
+        std::vector<glm::vec3> getPositions() { return positions; };
+        std::vector<uint32_t> getIndices() { return indices; };
+        std::vector<glm::vec3> getNormals() { return normals; };
+        std::vector<float> getInterleavedData();
+        size_t getNumVertices() const;
+        size_t getNumIndices() const;
     private:
-        void generateFace(glm::vec3 v0, glm::vec3 v1, glm::vec3 v2, glm::vec3 v3, glm::vec3 normal, int subdivisions);
-        std::vector<float> generateCube(int subdivisions, float size);
+        void generateFace( const glm::vec3 &faceCenter, const glm::vec3 &uAxis, const glm::vec3 &vAxis );
+        void generateCube();
+        int mSubdivisions;
+        int mSize;
+        std::vector<glm::vec3> positions;
+        std::vector<uint32_t> indices;
+        std::vector<glm::vec3> normals;
 };
 
 #endif

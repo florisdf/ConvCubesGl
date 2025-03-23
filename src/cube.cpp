@@ -2,60 +2,97 @@
 
 #include "cube.h"
 
-Cube::Cube(int subdivisions, float size) {
-    generateCube(subdivisions, size);
+Cube::Cube(int subdivisions, float size): mSubdivisions(subdivisions), mSize(size) {
+    generateCube();
 }
 
-// Function to generate vertices for a subdivided cube face (as a float array)
-void Cube::generateFace(glm::vec3 v0, glm::vec3 v1, glm::vec3 v2, glm::vec3 v3, glm::vec3 normal, int subdivisions) {
-    float step = 1.0f / subdivisions;
+std::vector<float> Cube::getInterleavedData() {
+    std::vector<float> data;
 
-    for (int i = 0; i < subdivisions; ++i) {
-        for (int j = 0; j < subdivisions; ++j) {
-            // Interpolate positions
-            float u0 = i * step, u1 = (i + 1) * step;
-            float v0_ = j * step, v1_ = (j + 1) * step;
+    for (auto idx: indices) {
+        auto p = positions[idx];
+        auto n = normals[idx];
+        data.push_back(p.x);
+        data.push_back(p.y);
+        data.push_back(p.z);
+        data.push_back(n.x);
+        data.push_back(n.y);
+        data.push_back(n.z);
+    }
 
-            glm::vec3 p00 = glm::mix(glm::mix(v0, v1, u0), glm::mix(v2, v3, u0), v0_);
-            glm::vec3 p10 = glm::mix(glm::mix(v0, v1, u1), glm::mix(v2, v3, u1), v0_);
-            glm::vec3 p01 = glm::mix(glm::mix(v0, v1, u0), glm::mix(v2, v3, u0), v1_);
-            glm::vec3 p11 = glm::mix(glm::mix(v0, v1, u1), glm::mix(v2, v3, u1), v1_);
+    return data;
+}
 
-            // Create two triangles per quad (6 vertices per face)
-            std::vector<glm::vec3> quadVertices = {p00, p10, p01, p10, p11, p01};
+void Cube::generateFace( const glm::vec3 &faceCenter, const glm::vec3 &uAxis, const glm::vec3 &vAxis )
+{
+    const glm::vec3 normal = normalize( faceCenter );
 
-            // Store vertices in float array format
-            for (const auto& p : quadVertices) {
-                vertices.push_back(p.x);
-                vertices.push_back(p.y);
-                vertices.push_back(p.z);
-            }
+    const uint32_t baseIdx = (uint32_t)positions.size();
 
-            // Store the same normal for each vertex
-            normals.push_back(normal.x);
-            normals.push_back(normal.y);
-            normals.push_back(normal.z);
+    // fill vertex data
+    for( int vi = 0; vi <= mSubdivisions; vi++ ) {
+        const float v = vi / float(mSubdivisions);
+        for( int ui = 0; ui <= mSubdivisions; ui++ ) {
+            const float u = ui / float(mSubdivisions);
+
+            positions.emplace_back( faceCenter + ( u - 0.5f ) * 2.0f * uAxis + ( v - 0.5f ) * 2.0f * vAxis );
+            normals.emplace_back( normal );
+        }
+    }
+
+    // 'baseIdx' will correspond to the index of the first vertex we created in this call to generateFace()
+//    const uint32_t baseIdx = indices->empty() ? 0 : ( indices->back() + 1 );
+    for( int u = 0; u < mSubdivisions; u++ ) {
+        for( int v = 0; v < mSubdivisions; v++ ) {
+            const int i = u + v * ( mSubdivisions + 1 );
+
+            indices.push_back( baseIdx + i );
+            indices.push_back( baseIdx + i + mSubdivisions + 1 );
+            indices.push_back( baseIdx + i + 1 );
+
+            indices.push_back( baseIdx + i + 1 );
+            indices.push_back( baseIdx + i + mSubdivisions + 1 );
+            indices.push_back( baseIdx + i + mSubdivisions + 2 );
+            // important the last is the highest idx due to determination of next face's baseIdx
         }
     }
 }
 
-// Function to generate a subdivided cube
-std::vector<float> Cube::generateCube(int subdivisions, float size) {
-    std::vector<float> vertices;
+size_t Cube::getNumVertices() const
+{
+    return 2 * ( (mSubdivisions+1) * (mSubdivisions+1) ) // +-Z
+            + 2 * ( (mSubdivisions+1) * (mSubdivisions+1) ) // +-X
+            + 2 * ( (mSubdivisions+1) * (mSubdivisions+1) ); // +-Y
+}
 
-    auto s = size/2;
-    glm::vec3 v[8] = {
-        {-s, -s, -s}, {s, -s, -s}, {s, s, -s}, {-s, s, -s},
-        {-s, -s, s},  {s, -s, s},  {s, s, s},  {-s, s, s}
-    };
+size_t Cube::getNumIndices() const
+{
+    return 2 * 6 * ( mSubdivisions * mSubdivisions ) // +-Z
+            + 2 * 6 * ( mSubdivisions * mSubdivisions ) // +-X
+            + 2 * 6 * ( mSubdivisions * mSubdivisions ); // +-Y
+}
 
-    // Generate vertices for each face
-    generateFace(v[0], v[1], v[3], v[2], {0, 0, -1}, subdivisions); // Front
-    generateFace(v[5], v[4], v[6], v[7], {0, 0, 1}, subdivisions);  // Back
-    generateFace(v[1], v[5], v[2], v[6], {1, 0, 0}, subdivisions);  // Right
-    generateFace(v[4], v[0], v[7], v[3], {-1, 0, 0}, subdivisions); // Left
-    generateFace(v[3], v[2], v[7], v[6], {0, 1, 0}, subdivisions);  // Top
-    generateFace(v[4], v[5], v[0], v[1], {0, -1, 0}, subdivisions); // Bottom
+void Cube::generateCube()
+{
+    const size_t numVertices = getNumVertices();
+    
+    // reserve room in vectors and set pointers to non-null for normals, texcoords and colors as appropriate
+    positions.reserve( numVertices );
+    indices.reserve( getNumIndices() );
+    normals.reserve( numVertices );
 
-    return vertices;
+    glm::vec3 sz = 0.5f * glm::vec3(mSize, mSize, mSize);
+    
+    // +X
+    generateFace( glm::vec3(sz.x,0,0), glm::vec3(0,0,sz.z), glm::vec3(0,sz.y,0) );
+    // +Y
+    generateFace( glm::vec3(0,sz.y,0), glm::vec3(sz.x,0,0), glm::vec3(0,0,sz.z) );
+    // +Z
+    generateFace( glm::vec3(0,0,sz.z), glm::vec3(0,sz.y,0), glm::vec3(sz.x,0,0) );
+    // -X
+    generateFace( glm::vec3(-sz.x,0,0), glm::vec3(0,sz.y,0), glm::vec3(0,0,sz.z) );
+    // -Y
+    generateFace( glm::vec3(0,-sz.y,0), glm::vec3(0,0,sz.z), glm::vec3(sz.x,0,0) );
+    // -Z
+    generateFace( glm::vec3(0,0,-sz.z), glm::vec3(sz.x,0,0), glm::vec3(0,sz.y,0) );
 }
