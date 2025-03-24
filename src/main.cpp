@@ -19,7 +19,7 @@ double randDouble();
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
-Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+Camera camera(glm::vec3(0.0f, 0.0f, 50.0f));
 
 int main()
 {
@@ -29,6 +29,7 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SAMPLES, 4);
 
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
@@ -56,28 +57,38 @@ int main()
     // configure global opengl state
     // -----------------------------
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_MULTISAMPLE);
 
     // build and compile shaders
     // -------------------------
-    //Shader shader("../shaders/vertex.shader", "../shaders/fragment.shader");
-    Shader shader("../shaders/basic_vertex.shader", "../shaders/fragment.shader");
+    Shader shader("../shaders/vertex.shader", "../shaders/fragment.shader");
+    //Shader shader("../shaders/basic_vertex.shader", "../shaders/fragment.shader");
 
     // generate a list of 100 cube locations/translation-vectors
     // ---------------------------------------------------------
-    const int numCubes = 100;
-    glm::vec2 translations[numCubes];
+    cv::Mat img;
+    cv::imread("../assets/chihuahua_224.jpg", img);
+    cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
+    img.convertTo(img, CV_32FC1);
+    img /= 255;
+    Cube cube(1, 1.0);
+
+    const int numCubes = img.rows * img.cols;
+    glm::vec3 translations[numCubes];
     glm::vec3 colors[numCubes];
+    float offset = -img.rows / 2;
     int index = 0;
-    float offset = 0.1f;
-    for (int y = -10; y < 10; y += 2)
+    for (int y = 0; y < img.rows; ++y)
     {
-        for (int x = -10; x < 10; x += 2)
+        for (int x = 0; x < img.cols; ++x)
         {
-            glm::vec2 translation;
-            translation.x = (float)x / 10.0f + offset;
-            translation.y = (float)y / 10.0f + offset;
+            glm::vec3 translation;
+            translation.x = (float)x + offset;
+            translation.y = - ((float)y + offset);
+            translation.z = 0.f;
             translations[index] = translation;
-            glm::vec3 color{randDouble(), randDouble(), randDouble()};
+            auto px = img.at<cv::Vec3f>(y, x);
+            glm::vec3 color{px[0], px[1], px[2]};
             colors[index] = color;
             ++index;
         }
@@ -85,11 +96,10 @@ int main()
 
     // store instance data in an array buffer
     // --------------------------------------
-    /**
     unsigned int cubeTfmVBO;
     glGenBuffers(1, &cubeTfmVBO);
     glBindBuffer(GL_ARRAY_BUFFER, cubeTfmVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec2) * numCubes, &translations[0], GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * numCubes, &translations[0], GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     unsigned int cubeColorVBO;
@@ -97,11 +107,9 @@ int main()
     glBindBuffer(GL_ARRAY_BUFFER, cubeColorVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * numCubes, &colors[0], GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    */
 
     // set up vertex data (and buffer(s)) and configure vertex attributes
     // ------------------------------------------------------------------
-    Cube cube(1, 1.0);
     std::vector<glm::vec3> positions = cube.getPositions();
     std::vector<glm::vec3> normals = cube.getNormals();
     std::vector<uint32_t> indices = cube.getIndices();
@@ -122,11 +130,11 @@ int main()
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3*sizeof(float))); // Normals
     glEnableVertexAttribArray(1);
-    /**
+
     // set instanced transforms
     glEnableVertexAttribArray(2);
     glBindBuffer(GL_ARRAY_BUFFER, cubeTfmVBO); // this attribute comes from a different vertex buffer
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glVertexAttribDivisor(2, 1); // tell OpenGL this is an instanced vertex attribute.
     // set instanced colors
@@ -135,7 +143,6 @@ int main()
     glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glVertexAttribDivisor(3, 1); // tell OpenGL this is an instanced vertex attribute.
-    */
 
     // render loop
     // -----------
@@ -150,8 +157,15 @@ int main()
         // draw instanced cubes
         shader.use();
         // view/projection transformations
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
-        glm::mat4 view = camera.GetViewMatrix();
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
+
+        // camera/view transformation
+        //glm::mat4 view = camera.GetViewMatrix();
+        glm::vec3 camPos{-80.f, 0.f, 400.f};
+        glm::vec3 camLookAt{0.f, 0.f, 0.f};
+        glm::vec3 camUp{0.f, 1.f, 0.f};
+        glm::mat4 view = glm::lookAt(camPos, camLookAt, camUp);
+
         shader.setMat4("projection", projection);
         shader.setMat4("view", view);
 
@@ -159,8 +173,8 @@ int main()
         glm::mat4 model = glm::mat4(1.0f);
         shader.setMat4("model", model);
         glBindVertexArray(cubeVAO);
-        //glDrawArraysInstanced(GL_TRIANGLES, 0, cube.vertices.size(), numCubes);
-        glDrawArrays(GL_TRIANGLES, 0, cube.getNumIndices());
+        glDrawArraysInstanced(GL_TRIANGLES, 0, cube.getNumIndices(), numCubes);
+        //glDrawArrays(GL_TRIANGLES, 0, cube.getNumIndices());
         glBindVertexArray(0);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
@@ -169,6 +183,7 @@ int main()
         if (saveFrame) {
             saveFrameBuffer("frame.png");
             saveFrame = false;
+            break;
         }
         glfwPollEvents();
     }
