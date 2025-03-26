@@ -71,11 +71,12 @@ int main()
     cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
     img.convertTo(img, CV_32FC1);
     img /= 255;
-    Cube cube(1, 1.0);
+    Cube cube(3, 1.0);
 
     const int numCubes = img.rows * img.cols;
     glm::vec3 translations[numCubes];
     glm::vec4 colors[numCubes];
+    float spherenesses[numCubes];
     float offset = -img.rows / 2;
     int index = 0;
     for (int y = 0; y < img.rows; ++y)
@@ -90,6 +91,7 @@ int main()
             auto px = img.at<cv::Vec3f>(y, x);
             glm::vec4 color{px[0], px[1], px[2], 1.0};
             colors[index] = color;
+            spherenesses[index] = 1.0;
             ++index;
         }
     }
@@ -106,6 +108,12 @@ int main()
     glGenBuffers(1, &cubeColorVBO);
     glBindBuffer(GL_ARRAY_BUFFER, cubeColorVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec4) * numCubes, &colors[0], GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    unsigned int spherenessVBO;
+    glGenBuffers(1, &spherenessVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, spherenessVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * numCubes, &spherenesses[0], GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     // set up vertex data (and buffer(s)) and configure vertex attributes
@@ -143,6 +151,12 @@ int main()
     glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glVertexAttribDivisor(3, 1); // tell OpenGL this is an instanced vertex attribute.
+    // set instanced spherenesses
+    glEnableVertexAttribArray(4);
+    glBindBuffer(GL_ARRAY_BUFFER, spherenessVBO); // this attribute comes from a different vertex buffer
+    glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glVertexAttribDivisor(4, 1); // tell OpenGL this is an instanced vertex attribute.
 
     // render loop
     // -----------
