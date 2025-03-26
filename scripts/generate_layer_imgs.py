@@ -6,9 +6,7 @@ import numpy as np
 from PIL import Image
 import torch
 from torch import nn
-from torchvision.models import (
-    resnet18, ResNet18_Weights, vgg11_bn, VGG11_BN_Weights
-)
+from torchvision.models import resnet18, ResNet18_Weights
 
 
 def main(img_path: Path, out_dir: Path):
@@ -25,7 +23,8 @@ def main(img_path: Path, out_dir: Path):
     model = model.cuda()
     # import pdb; pdb.set_trace()
     x = preprocess(im)[None, ...].cuda()
-    for i, (name, layer) in enumerate(model.named_children()):
+    layer_counter = 0
+    for name, layer in model.named_children():
         if name == 'fc':
             break
         with torch.inference_mode():
@@ -45,7 +44,9 @@ def main(img_path: Path, out_dir: Path):
                 img /= q90
                 img = np.clip(img, 0, 1)
                 img = (img * 255).astype(np.uint8)
-                Image.fromarray(img).save(out_dir / f'{i:02}_{c:04}.jpg')
+                Image.fromarray(img).save(
+                    out_dir / f'{layer_counter:02}_{c:04}.jpg')
+            layer_counter += 1
 
 
 if __name__ == '__main__':

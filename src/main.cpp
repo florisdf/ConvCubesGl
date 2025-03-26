@@ -9,7 +9,14 @@
 #include "cube.h"
 #include "camera.h"
 
+#include <filesystem>
 #include <iostream>
+#include <bits/stdc++.h>
+#include <set>
+
+using directory_iterator = std::filesystem::directory_iterator;
+using namespace std;
+namespace fs = std::filesystem;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void saveFrameBuffer(const std::string& filename);
@@ -66,11 +73,38 @@ int main()
 
     // generate a list of 100 cube locations/translation-vectors
     // ---------------------------------------------------------
+    std::vector<std::vector<cv::Mat>> layer_imgs{};
     cv::Mat img;
     cv::imread("../assets/chihuahua_224.jpg", img);
     cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
     img.convertTo(img, CV_32FC1);
     img /= 255;
+    layer_imgs.push_back({img});
+
+    set<fs::path> sorted_files;
+    for (auto &entry : fs::directory_iterator("../scripts/layer_outputs"))
+        sorted_files.insert(entry.path());
+    std::regex del("_");
+
+    for (const auto& path : sorted_files) {
+        std::string stem = path.stem();
+        // Create a regex_token_iterator to split the string
+        std::sregex_token_iterator it(stem.begin(), stem.end(), del, -1);
+        string layer_num_str = *it;
+        int layer_num = std::stoi(layer_num_str);
+        int channel_num = std::stoi(*(++it));
+        int layer_idx = layer_num + 1;
+        if (layer_idx == layer_imgs.size()) {
+            layer_imgs.push_back({});
+        }
+        cv::Mat img;
+        cv::imread(path.string(), img);
+        cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
+        img.convertTo(img, CV_32FC1);
+        img /= 255;
+        layer_imgs[layer_idx].push_back(img);
+    }
+
     Cube cube(3, 1.0);
 
     const int numCubes = img.rows * img.cols;
