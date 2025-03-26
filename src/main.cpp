@@ -16,8 +16,8 @@ void saveFrameBuffer(const std::string& filename);
 double randDouble();
 
 // settings
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 600;
+const unsigned int SCR_WIDTH = 1920;
+const unsigned int SCR_HEIGHT = 1080;
 
 Camera camera(glm::vec3(0.0f, 0.0f, 50.0f));
 
@@ -75,7 +75,7 @@ int main()
 
     const int numCubes = img.rows * img.cols;
     glm::vec3 translations[numCubes];
-    glm::vec3 colors[numCubes];
+    glm::vec4 colors[numCubes];
     float offset = -img.rows / 2;
     int index = 0;
     for (int y = 0; y < img.rows; ++y)
@@ -88,7 +88,7 @@ int main()
             translation.z = 0.f;
             translations[index] = translation;
             auto px = img.at<cv::Vec3f>(y, x);
-            glm::vec3 color{px[0], px[1], px[2]};
+            glm::vec4 color{px[0], px[1], px[2], 1.0};
             colors[index] = color;
             ++index;
         }
@@ -105,7 +105,7 @@ int main()
     unsigned int cubeColorVBO;
     glGenBuffers(1, &cubeColorVBO);
     glBindBuffer(GL_ARRAY_BUFFER, cubeColorVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * numCubes, &colors[0], GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec4) * numCubes, &colors[0], GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     // set up vertex data (and buffer(s)) and configure vertex attributes
@@ -140,7 +140,7 @@ int main()
     // set instanced colors
     glEnableVertexAttribArray(3);
     glBindBuffer(GL_ARRAY_BUFFER, cubeColorVBO); // this attribute comes from a different vertex buffer
-    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glVertexAttribDivisor(3, 1); // tell OpenGL this is an instanced vertex attribute.
 
