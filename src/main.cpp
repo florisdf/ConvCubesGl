@@ -66,6 +66,13 @@ int main()
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_MULTISAMPLE);
 
+    // Face culling
+    glEnable(GL_CULL_FACE);
+
+    // Blending
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     // build and compile shaders
     // -------------------------
     Shader shader("../shaders/vertex.shader", "../shaders/fragment.shader");
@@ -73,62 +80,68 @@ int main()
 
     // generate a list of 100 cube locations/translation-vectors
     // ---------------------------------------------------------
-    std::vector<std::vector<cv::Mat>> layer_imgs{};
-    cv::Mat img;
-    cv::imread("../assets/chihuahua_224.jpg", img);
-    cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
-    img.convertTo(img, CV_32FC1);
-    img /= 255;
-    layer_imgs.push_back({img});
-
     set<fs::path> sorted_files;
-    for (auto &entry : fs::directory_iterator("../scripts/layer_outputs"))
+    for (auto &entry : fs::directory_iterator("../scripts/layer_outputs")) {
         sorted_files.insert(entry.path());
-    std::regex del("_");
+    }
 
+    int numCubes = 0;
+    vector<fs::path> sel_files{};
+    int pathCounter = 0;
     for (const auto& path : sorted_files) {
+        cv::Mat img;
+        cv::imread(path.string(), img);
+        numCubes += img.rows * img.cols;
+        sel_files.push_back(path);
+        ++pathCounter;
+    }
+
+    glm::vec3* translations = new glm::vec3[numCubes];
+    glm::vec4* colors = new glm::vec4[numCubes];
+    float* spherenesses = new float[numCubes];
+
+    std::regex del("_");
+    float z = 0;
+    int flat_idx = 0;
+    for (const auto& path : sel_files) {
         std::string stem = path.stem();
         // Create a regex_token_iterator to split the string
         std::sregex_token_iterator it(stem.begin(), stem.end(), del, -1);
         string layer_num_str = *it;
         int layer_num = std::stoi(layer_num_str);
         int channel_num = std::stoi(*(++it));
-        int layer_idx = layer_num + 1;
-        if (layer_idx == layer_imgs.size()) {
-            layer_imgs.push_back({});
-        }
+
         cv::Mat img;
         cv::imread(path.string(), img);
         cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
         img.convertTo(img, CV_32FC1);
         img /= 255;
-        layer_imgs[layer_idx].push_back(img);
-    }
 
-    Cube cube(3, 1.0);
-
-    const int numCubes = img.rows * img.cols;
-    glm::vec3 translations[numCubes];
-    glm::vec4 colors[numCubes];
-    float spherenesses[numCubes];
-    float offset = -img.rows / 2;
-    int index = 0;
-    for (int y = 0; y < img.rows; ++y)
-    {
-        for (int x = 0; x < img.cols; ++x)
+        float offsetX = -img.rows / 2;
+        float offsetY = -img.rows / 2;
+        if (layer_num != 0 ) {
+            if (channel_num == 0) z += 1;
+            z += 1;
+        }
+        for (int y = 0; y < img.rows; ++y)
         {
-            glm::vec3 translation;
-            translation.x = (float)x + offset;
-            translation.y = - ((float)y + offset);
-            translation.z = 0.f;
-            translations[index] = translation;
-            auto px = img.at<cv::Vec3f>(y, x);
-            glm::vec4 color{px[0], px[1], px[2], 1.0};
-            colors[index] = color;
-            spherenesses[index] = 1.0;
-            ++index;
+            for (int x = 0; x < img.cols; ++x)
+            {
+                glm::vec3 translation;
+                translation.x = (float)x + offsetX;
+                translation.y = - ((float)y + offsetY);
+                translation.z = z;
+                translations[flat_idx] = translation;
+                auto px = img.at<cv::Vec3f>(y, x);
+                glm::vec4 color{px[0], px[1], px[2], 1.0};
+                colors[flat_idx] = color;
+                spherenesses[flat_idx] = 1.0;
+                ++flat_idx;
+            }
         }
     }
+
+    Cube cube(5, 1.0);
 
     // store instance data in an array buffer
     // --------------------------------------
@@ -199,7 +212,7 @@ int main()
     {
         // render
         // ------
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClearColor(0.9f, 0.9f, 0.9f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // draw instanced cubes
@@ -209,7 +222,7 @@ int main()
 
         // camera/view transformation
         //glm::mat4 view = camera.GetViewMatrix();
-        glm::vec3 camPos{-80.f, 0.f, 400.f};
+        glm::vec3 camPos{-100.f, 0.f, 200.f};
         glm::vec3 camLookAt{0.f, 0.f, 0.f};
         glm::vec3 camUp{0.f, 1.f, 0.f};
         glm::mat4 view = glm::lookAt(camPos, camLookAt, camUp);
@@ -240,6 +253,10 @@ int main()
     // ------------------------------------------------------------------------
     glDeleteVertexArrays(1, &cubeVAO);
     glDeleteBuffers(1, &cubeVBO);
+
+    delete [] translations;
+    delete [] colors;
+    delete [] spherenesses;
 
     glfwTerminate();
     return 0;
