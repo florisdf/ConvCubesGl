@@ -99,6 +99,7 @@ int main()
     glm::vec3* translations = new glm::vec3[numCubes];
     glm::vec4* colors = new glm::vec4[numCubes];
     float* spherenesses = new float[numCubes];
+    float* scales = new float[numCubes];
 
     std::regex del("_");
     float z = 0;
@@ -136,6 +137,7 @@ int main()
                 glm::vec4 color{px[0], px[1], px[2], 1.0};
                 colors[flat_idx] = color;
                 spherenesses[flat_idx] = 1.0;
+                scales[flat_idx] = 0.9;
                 ++flat_idx;
             }
         }
@@ -161,6 +163,12 @@ int main()
     glGenBuffers(1, &spherenessVBO);
     glBindBuffer(GL_ARRAY_BUFFER, spherenessVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * numCubes, &spherenesses[0], GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    unsigned int scaleVBO;
+    glGenBuffers(1, &scaleVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, scaleVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * numCubes, &scales[0], GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     // set up vertex data (and buffer(s)) and configure vertex attributes
@@ -257,6 +265,7 @@ int main()
     delete [] translations;
     delete [] colors;
     delete [] spherenesses;
+    delete [] scales;
 
     glfwTerminate();
     return 0;

@@ -4,6 +4,7 @@ layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec3 aOffset;
 layout (location = 3) in vec4 aColor;
 layout (location = 4) in float aSphereness;
+layout (location = 5) in float aScale;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -22,7 +23,7 @@ void main()
 
     vec3 normal = normalize(mix(cubeNormal, sphereNormal, aSphereness));
 
-    gl_Position = projection * view * model * (pos + vec4(aOffset, 1.0));
+    gl_Position = projection * view * model * (aScale * pos + vec4(aOffset, 1.0));
     fColor = aColor;
     fNormal = normal;
 }
