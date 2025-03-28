@@ -24,6 +24,9 @@ def main(img_path: Path, out_dir: Path):
     # import pdb; pdb.set_trace()
     x = preprocess(im)[None, ...].cuda()
     layer_counter = 0
+    c = 0
+    im.save(out_dir / f'{layer_counter:02}_{c:04}.jpg')
+    layer_counter += 1
     for name, layer in model.named_children():
         if name == 'fc':
             break
