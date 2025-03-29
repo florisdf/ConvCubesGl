@@ -26,6 +26,9 @@ double randDouble();
 const unsigned int SCR_WIDTH = 1920;
 const unsigned int SCR_HEIGHT = 1080;
 
+const unsigned int FB_HEIGHT = 3840;
+const unsigned int FB_WIDTH = 2160;
+
 Camera camera(glm::vec3(0.0f, 0.0f, 50.0f));
 
 int main()
@@ -76,7 +79,7 @@ int main()
     // build and compile shaders
     // -------------------------
     Shader shader("../shaders/vertex.shader", "../shaders/fragment.shader");
-    //Shader shader("../shaders/basic_vertex.shader", "../shaders/fragment.shader");
+    Shader screenShader("../shaders/quad_tex_vertex.shader", "../shaders/quad_tex_fragment.shader");
 
     // generate a list of 100 cube locations/translation-vectors
     // ---------------------------------------------------------
@@ -136,8 +139,8 @@ int main()
                 auto px = img.at<cv::Vec3f>(y, x);
                 glm::vec4 color{px[0], px[1], px[2], 1.0};
                 colors[flat_idx] = color;
-                spherenesses[flat_idx] = 1.0;
-                scales[flat_idx] = 0.9;
+                spherenesses[flat_idx] = 0.0;
+                scales[flat_idx] = 1.0;
                 ++flat_idx;
             }
         }
@@ -212,16 +215,91 @@ int main()
     glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glVertexAttribDivisor(4, 1); // tell OpenGL this is an instanced vertex attribute.
+    // set instanced scales
+    glEnableVertexAttribArray(5);
+    glBindBuffer(GL_ARRAY_BUFFER, scaleVBO); // this attribute comes from a different vertex buffer
+    glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glVertexAttribDivisor(5, 1); // tell OpenGL this is an instanced vertex attribute.
+
+    // create high res framebuffer to write to; the final display output will be an anti-aliased downscaled version of this
+    // --------------------------------------------------------------------------------------------------------------------
+    unsigned int framebuffer;
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+    // generate texture
+    unsigned int textureColorbuffer;
+    glGenTextures(1, &textureColorbuffer);
+    glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, FB_WIDTH, FB_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // attach it to currently bound framebuffer object
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorbuffer, 0);  
+
+    // Create render buffer for depth and stencil buffers
+    unsigned int rbo;
+    glGenRenderbuffers(1, &rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo); 
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, FB_WIDTH, FB_HEIGHT);  
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+    // attach the renderbuffer object to the depth and stencil attachment of the framebuffer
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo);
+
+    // check if the framebuffer is complete now, so we can render to it
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
+
+    // unbind buffer, rendering to display again
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // define vertex buffer for screen quad
+    // ------------------------------------
+    float quadVertices[] = { // vertex attributes for a quad that fills the entire screen in Normalized Device Coordinates.
+        // positions   // texCoords
+        -1.0f,  1.0f,  0.0f, 1.0f,
+        -1.0f, -1.0f,  0.0f, 0.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+
+        -1.0f,  1.0f,  0.0f, 1.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f
+    };
+    unsigned int quadVAO, quadVBO;
+    glGenVertexArrays(1, &quadVAO);
+    glGenBuffers(1, &quadVBO);
+    glBindVertexArray(quadVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+
+    // shader config
+    // -------------
+    screenShader.use();
+    screenShader.setInt("screenTexture", 0);
 
     // render loop
     // -----------
     bool saveFrame = true;
     while (!glfwWindowShouldClose(window))
     {
-        // render
-        // ------
+        double t0Loop = (double)cv::getTickCount();
+        // first pass rendering to high res framebuffer
+        // --------------------------------------------
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
         glClearColor(0.9f, 0.9f, 0.9f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST);
+
+        // update the viewport size
+        glViewport(0, 0, FB_WIDTH, FB_HEIGHT);
 
         // draw instanced cubes
         shader.use();
@@ -245,10 +323,30 @@ int main()
         glDrawArraysInstanced(GL_TRIANGLES, 0, cube.getNumIndices(), numCubes);
         //glDrawArrays(GL_TRIANGLES, 0, cube.getNumIndices());
         glBindVertexArray(0);
+        double t1Loop = (double)cv::getTickCount();
+        double tLoop = (t1Loop - t0Loop) / cv::getTickFrequency();
+        std::cout << "tLoop: " << tLoop << " s" << std::endl;
+
+        // second pass rendering to screen
+        // --------------------------------
+        glBindFramebuffer(GL_FRAMEBUFFER, 0); // back to default
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f); 
+        glClear(GL_COLOR_BUFFER_BIT);
+        glDisable(GL_DEPTH_TEST);
+        // update the viewport size
+        glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
+
+        screenShader.use();  
+        glBindVertexArray(quadVAO);
+
+        // draw quad
+        glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
         glfwSwapBuffers(window);
+
         if (saveFrame) {
             saveFrameBuffer("frame.png");
             saveFrame = false;
@@ -260,7 +358,15 @@ int main()
     // optional: de-allocate all resources once they've outlived their purpose:
     // ------------------------------------------------------------------------
     glDeleteVertexArrays(1, &cubeVAO);
+    glDeleteVertexArrays(1, &quadVAO);
     glDeleteBuffers(1, &cubeVBO);
+    glDeleteBuffers(1, &cubeTfmVBO);
+    glDeleteBuffers(1, &cubeColorVBO);
+    glDeleteBuffers(1, &spherenessVBO);
+    glDeleteBuffers(1, &scaleVBO);
+    glDeleteBuffers(1, &quadVBO);
+    glDeleteRenderbuffers(1, &rbo);
+    glDeleteFramebuffers(1, &framebuffer);
 
     delete [] translations;
     delete [] colors;
