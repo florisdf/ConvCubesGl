@@ -139,8 +139,8 @@ int main()
                 auto px = img.at<cv::Vec3f>(y, x);
                 glm::vec4 color{px[0], px[1], px[2], 1.0};
                 colors[flat_idx] = color;
-                spherenesses[flat_idx] = 0.0;
-                scales[flat_idx] = 1.0;
+                spherenesses[flat_idx] = 1.0;
+                scales[flat_idx] = 0.9;
                 ++flat_idx;
             }
         }
@@ -233,7 +233,9 @@ int main()
     glGenTextures(1, &textureColorbuffer);
     glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, FB_WIDTH, FB_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);  // Keep level 0 (original resolution)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 2);   // Stop at 1024x1024 (2 levels down)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -341,6 +343,7 @@ int main()
 
         // draw quad
         glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
+        glGenerateMipmap(GL_TEXTURE_2D);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
