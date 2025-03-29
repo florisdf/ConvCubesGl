@@ -26,8 +26,8 @@ double randDouble();
 const unsigned int SCR_WIDTH = 1920;
 const unsigned int SCR_HEIGHT = 1080;
 
-const unsigned int FB_HEIGHT = 3840;
-const unsigned int FB_WIDTH = 2160;
+const unsigned int FB_HEIGHT = 3840*4;
+const unsigned int FB_WIDTH = 2160*4;
 
 Camera camera(glm::vec3(0.0f, 0.0f, 50.0f));
 
@@ -107,6 +107,8 @@ int main()
     std::regex del("_");
     float z = 0;
     int flat_idx = 0;
+    cv::Mat img0 = cv::imread(sel_files[0].string());
+    double scale = 1./img0.cols;
     for (const auto& path : sel_files) {
         std::string stem = path.stem();
         // Create a regex_token_iterator to split the string
@@ -121,26 +123,26 @@ int main()
         img.convertTo(img, CV_32FC1);
         img /= 255;
 
-        float offsetX = -img.rows / 2;
-        float offsetY = -img.rows / 2;
+        float offsetX = -img.cols/2;
+        float offsetY = -img.rows/2;
         if (layer_num != 0 ) {
-            if (channel_num == 0) z += 1;
-            z += 1;
+            if (channel_num == 0) z += scale;
+            z += scale;
         }
         for (int y = 0; y < img.rows; ++y)
         {
             for (int x = 0; x < img.cols; ++x)
             {
                 glm::vec3 translation;
-                translation.x = (float)x + offsetX;
-                translation.y = - ((float)y + offsetY);
+                translation.x = (x + offsetX)*scale;
+                translation.y = - (y + offsetY)*scale;
                 translation.z = z;
                 translations[flat_idx] = translation;
                 auto px = img.at<cv::Vec3f>(y, x);
                 glm::vec4 color{px[0], px[1], px[2], 1.0};
                 colors[flat_idx] = color;
                 spherenesses[flat_idx] = 1.0;
-                scales[flat_idx] = 0.9;
+                scales[flat_idx] = 0.9*scale;
                 ++flat_idx;
             }
         }
@@ -233,8 +235,6 @@ int main()
     glGenTextures(1, &textureColorbuffer);
     glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, FB_WIDTH, FB_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);  // Keep level 0 (original resolution)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 2);   // Stop at 1024x1024 (2 levels down)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -310,7 +310,7 @@ int main()
 
         // camera/view transformation
         //glm::mat4 view = camera.GetViewMatrix();
-        glm::vec3 camPos{-100.f, 0.f, 200.f};
+        glm::vec3 camPos{-1.f, 0.f, 2.f};
         glm::vec3 camLookAt{0.f, 0.f, 0.f};
         glm::vec3 camUp{0.f, 1.f, 0.f};
         glm::mat4 view = glm::lookAt(camPos, camLookAt, camUp);
