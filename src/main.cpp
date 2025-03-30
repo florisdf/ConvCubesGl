@@ -20,6 +20,14 @@ namespace fs = std::filesystem;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void saveFrameBuffer(const std::string& filename);
+void setPxProp(int layer, int channel, int y, int x, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data);
+void getPxProp(int layer, int channel, int y, int x, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data);
+void setPxAlpha(int layer, int channel, int y, int x, float newAlpha);
+void setPxPos(int layer, int channel, int y, int x, glm::vec3 newPos);
+void setTransPxPos(int idx, glm::vec3 newPos);
+void setTransPxColor(int idx, glm::vec4 newColor);
+void setRawProp(int offsetUnits, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data);
+void movePx(int layer, int channel, int y, int x, glm::vec3 dPos);
 double randDouble();
 
 // settings
@@ -30,6 +38,21 @@ const unsigned int FB_HEIGHT = 3840*4;
 const unsigned int FB_WIDTH = 2160*4;
 
 Camera camera(glm::vec3(0.0f, 0.0f, 50.0f));
+
+map<tuple<int, int, int, int>, int> pxToIdx;
+map<tuple<int, int, int, int>, glm::vec3> pxToPos0;
+map<tuple<int, int>, cv::Size> imgSizes;
+
+
+unsigned int posVBO = 0;
+unsigned int colorVBO = 0;
+unsigned int spherenessVBO = 0;
+unsigned int scaleVBO = 0;
+unsigned int cubeVAO = 0, vertexVBO = 0;
+unsigned int framebuffer = 0;
+unsigned int textureColorbuffer = 0;
+unsigned int rbo = 0;
+
 
 int main()
 {
@@ -95,6 +118,11 @@ int main()
         cv::Mat img;
         cv::imread(path.string(), img);
         numCubes += img.rows * img.cols;
+        if (pathCounter == 0) {
+            // Generate transition pixels, as first layer has max num pixels
+            // We need 9 transition pixels per pixel
+            numCubes += img.rows * img.cols * 9;
+        }
         sel_files.push_back(path);
         ++pathCounter;
     }
@@ -108,7 +136,6 @@ int main()
     float z = 0;
     int flat_idx = 0;
     cv::Mat img0 = cv::imread(sel_files[0].string());
-    double scale = 1./img0.cols;
     for (const auto& path : sel_files) {
         std::string stem = path.stem();
         // Create a regex_token_iterator to split the string
@@ -122,27 +149,43 @@ int main()
         cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
         img.convertTo(img, CV_32FC1);
         img /= 255;
+        imgSizes[tuple<int, int>(layer_num, channel_num)] = {img.cols, img.rows};
 
         float offsetX = -img.cols/2;
         float offsetY = -img.rows/2;
         if (layer_num != 0 ) {
-            if (channel_num == 0) z += scale;
-            z += scale;
+            if (channel_num == 0) z += 1.0;
+            z += 1.0;
+        } else {
+            // Generate transition pixels, as first layer has max num pixels
+            // We need 9 transition pixels per pixel
+            for (int y = 0; y < img.rows; ++y)
+                for (int x = 0; x < img.cols; ++x)
+                    for (int i = 0; i < 9; ++i) {
+                        translations[flat_idx] = {};
+                        colors[flat_idx] = {};
+                        scales[flat_idx] = 1.0;
+                        spherenesses[flat_idx] = 0.0;
+                        ++flat_idx;
+                    }
         }
         for (int y = 0; y < img.rows; ++y)
         {
             for (int x = 0; x < img.cols; ++x)
             {
                 glm::vec3 translation;
-                translation.x = (x + offsetX)*scale;
-                translation.y = - (y + offsetY)*scale;
+                translation.x = (x + offsetX);
+                translation.y = - (y + offsetY);
                 translation.z = z;
                 translations[flat_idx] = translation;
                 auto px = img.at<cv::Vec3f>(y, x);
                 glm::vec4 color{px[0], px[1], px[2], 1.0};
                 colors[flat_idx] = color;
-                spherenesses[flat_idx] = 1.0;
-                scales[flat_idx] = 0.9*scale;
+                spherenesses[flat_idx] = 0.0;
+                scales[flat_idx] = 1.0;
+                tuple lcyx(layer_num, channel_num, y, x);
+                pxToIdx[lcyx] = flat_idx;
+                pxToPos0[lcyx] = translation;
                 ++flat_idx;
             }
         }
@@ -152,25 +195,21 @@ int main()
 
     // store instance data in an array buffer
     // --------------------------------------
-    unsigned int cubeTfmVBO;
-    glGenBuffers(1, &cubeTfmVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, cubeTfmVBO);
+    glGenBuffers(1, &posVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, posVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * numCubes, &translations[0], GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    unsigned int cubeColorVBO;
-    glGenBuffers(1, &cubeColorVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, cubeColorVBO);
+    glGenBuffers(1, &colorVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, colorVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec4) * numCubes, &colors[0], GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    unsigned int spherenessVBO;
     glGenBuffers(1, &spherenessVBO);
     glBindBuffer(GL_ARRAY_BUFFER, spherenessVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * numCubes, &spherenesses[0], GL_DYNAMIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    unsigned int scaleVBO;
     glGenBuffers(1, &scaleVBO);
     glBindBuffer(GL_ARRAY_BUFFER, scaleVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * numCubes, &scales[0], GL_DYNAMIC_DRAW);
@@ -183,15 +222,14 @@ int main()
     std::vector<uint32_t> indices = cube.getIndices();
 
     std::vector<float> dataVec = cube.getInterleavedData();
-    float data[dataVec.size()];
-    std::copy(dataVec.begin(), dataVec.end(), data);
+    float vertexData[dataVec.size()];
+    std::copy(dataVec.begin(), dataVec.end(), vertexData);
 
-    unsigned int cubeVAO, cubeVBO;
     glGenVertexArrays(1, &cubeVAO);
-    glGenBuffers(1, &cubeVBO);
+    glGenBuffers(1, &vertexVBO);
     // fill vertex buffer
-    glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertexData), vertexData, GL_STATIC_DRAW);
     // position attribute
     glBindVertexArray(cubeVAO);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0); // Vertices
@@ -201,13 +239,13 @@ int main()
 
     // set instanced transforms
     glEnableVertexAttribArray(2);
-    glBindBuffer(GL_ARRAY_BUFFER, cubeTfmVBO); // this attribute comes from a different vertex buffer
+    glBindBuffer(GL_ARRAY_BUFFER, posVBO); // this attribute comes from a different vertex buffer
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glVertexAttribDivisor(2, 1); // tell OpenGL this is an instanced vertex attribute.
     // set instanced colors
     glEnableVertexAttribArray(3);
-    glBindBuffer(GL_ARRAY_BUFFER, cubeColorVBO); // this attribute comes from a different vertex buffer
+    glBindBuffer(GL_ARRAY_BUFFER, colorVBO); // this attribute comes from a different vertex buffer
     glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glVertexAttribDivisor(3, 1); // tell OpenGL this is an instanced vertex attribute.
@@ -226,12 +264,10 @@ int main()
 
     // create high res framebuffer to write to; the final display output will be an anti-aliased downscaled version of this
     // --------------------------------------------------------------------------------------------------------------------
-    unsigned int framebuffer;
     glGenFramebuffers(1, &framebuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
 
     // generate texture
-    unsigned int textureColorbuffer;
     glGenTextures(1, &textureColorbuffer);
     glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, FB_WIDTH, FB_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
@@ -240,13 +276,12 @@ int main()
     glBindTexture(GL_TEXTURE_2D, 0);
 
     // attach it to currently bound framebuffer object
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorbuffer, 0);  
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorbuffer, 0);
 
     // Create render buffer for depth and stencil buffers
-    unsigned int rbo;
     glGenRenderbuffers(1, &rbo);
-    glBindRenderbuffer(GL_RENDERBUFFER, rbo); 
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, FB_WIDTH, FB_HEIGHT);  
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, FB_WIDTH, FB_HEIGHT);
     glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
     // attach the renderbuffer object to the depth and stencil attachment of the framebuffer
@@ -287,6 +322,41 @@ int main()
     screenShader.use();
     screenShader.setInt("screenTexture", 0);
 
+    // Set opacity
+    int layer = 0;
+    int channel = 0;
+    auto imgSize = imgSizes[tuple<int,int>(layer, channel)];
+    int W, H;
+    W = imgSize.width;
+    H = imgSize.height;
+    glm::vec3 transPxPositions[W*H];
+    glm::vec4 transPxColors[W*H];
+    int idx = 0;
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x) {
+            auto a = 0.5;
+            auto lcyx0 = tuple(layer, channel, y, x);
+            auto lcyx1 = tuple(layer+1, channel, y/2, x/2);
+            auto p0 = pxToPos0[lcyx0];
+            auto p1 = pxToPos0[lcyx1];
+            transPxPositions[idx] = glm::mix(p0, p1, a);
+
+            auto c0 = colors[pxToIdx[lcyx0]];
+            auto c1 = colors[pxToIdx[lcyx1]];
+            transPxColors[idx] = glm::mix(c0, c1, a);
+            ++idx;
+        }
+    glBindBuffer(GL_ARRAY_BUFFER, posVBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(transPxPositions), &transPxPositions[0]);
+    glBindBuffer(GL_ARRAY_BUFFER, colorVBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(transPxColors), &transPxColors[0]);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    for (auto i: pxToIdx) {
+        const auto& [l, c, y, x] = i.first;
+        if (l < 1) continue;
+        setPxAlpha(l, c, y, x, 0.);
+    }
+
     // render loop
     // -----------
     bool saveFrame = true;
@@ -310,7 +380,7 @@ int main()
 
         // camera/view transformation
         //glm::mat4 view = camera.GetViewMatrix();
-        glm::vec3 camPos{-1.f, 0.f, 2.f};
+        glm::vec3 camPos{-50.f, 0.f, 150.f};
         glm::vec3 camLookAt{0.f, 0.f, 0.f};
         glm::vec3 camUp{0.f, 1.f, 0.f};
         glm::mat4 view = glm::lookAt(camPos, camLookAt, camUp);
@@ -332,13 +402,13 @@ int main()
         // second pass rendering to screen
         // --------------------------------
         glBindFramebuffer(GL_FRAMEBUFFER, 0); // back to default
-        glClearColor(1.0f, 1.0f, 1.0f, 1.0f); 
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         glDisable(GL_DEPTH_TEST);
         // update the viewport size
         glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
 
-        screenShader.use();  
+        screenShader.use();
         glBindVertexArray(quadVAO);
 
         // draw quad
@@ -362,9 +432,9 @@ int main()
     // ------------------------------------------------------------------------
     glDeleteVertexArrays(1, &cubeVAO);
     glDeleteVertexArrays(1, &quadVAO);
-    glDeleteBuffers(1, &cubeVBO);
-    glDeleteBuffers(1, &cubeTfmVBO);
-    glDeleteBuffers(1, &cubeColorVBO);
+    glDeleteBuffers(1, &vertexVBO);
+    glDeleteBuffers(1, &posVBO);
+    glDeleteBuffers(1, &colorVBO);
     glDeleteBuffers(1, &spherenessVBO);
     glDeleteBuffers(1, &scaleVBO);
     glDeleteBuffers(1, &quadVBO);
@@ -384,7 +454,7 @@ int main()
 // ---------------------------------------------------------------------------------------------
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
-    // make sure the viewport matches the new window dimensions; note that width and 
+    // make sure the viewport matches the new window dimensions; note that width and
     // height will be significantly larger than specified on retina displays.
     glViewport(0, 0, width, height);
 }
@@ -411,6 +481,52 @@ void saveFrameBuffer(const std::string& filename) {
     } else {
         std::cerr << "Failed to save image!" << std::endl;
     }
+}
+
+void movePx(int layer, int channel, int y, int x, glm::vec3 dPos) {
+    glm::vec3 oldPos;
+    getPxProp(layer, channel, y, x, posVBO, sizeof(glm::vec3), 1, (void*) &oldPos);
+    glm::vec3 newPos{oldPos.x + dPos.x, oldPos.y + dPos.y, oldPos.z + dPos.z};
+    setPxProp(layer, channel, y, x, posVBO, sizeof(glm::vec3), 1, (void*) &newPos);
+}
+
+void setPxPos(int layer, int channel, int y, int x, glm::vec3 newPos) {
+    setPxProp(layer, channel, y, x, posVBO, sizeof(glm::vec3), 1, (void*) &newPos);
+}
+
+void setPxAlpha(int layer, int channel, int y, int x, float newAlpha) {
+    glm::vec4 oldColor;
+    getPxProp(layer, channel, y, x, colorVBO, sizeof(glm::vec4), 1, (void*) &oldColor);
+    glm::vec4 newColor{oldColor.x, oldColor.y, oldColor.z, newAlpha};
+    setPxProp(layer, channel, y, x, colorVBO, sizeof(glm::vec4), 1, (void*) &newColor);
+}
+
+void setPxProp(int layer, int channel, int y, int x, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data) {
+    tuple<int,int,int,int> lcyx(layer, channel, y, x);
+    int offset = pxToIdx[lcyx];
+    setRawProp(offset, vbo, unitSize, numUnits, data);
+}
+
+void setTransPxColor(int idx, glm::vec4 newColor) {
+    setRawProp(idx, colorVBO, sizeof(glm::vec4), 1, &newColor);
+}
+
+void setTransPxPos(int idx, glm::vec3 newPos) {
+    setRawProp(idx, posVBO, sizeof(glm::vec3), 1, &newPos);
+}
+
+void setRawProp(int offsetUnits, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data) {
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, offsetUnits*unitSize, numUnits*unitSize, data);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void getPxProp(int layer, int channel, int y, int x, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data) {
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    tuple<int,int,int,int> lcyx(layer, channel, y, x);
+    int offset = pxToIdx[lcyx];
+    glGetBufferSubData(GL_ARRAY_BUFFER, offset*unitSize, numUnits*unitSize, data);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
 double randDouble() {
