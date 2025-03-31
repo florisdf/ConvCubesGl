@@ -20,15 +20,34 @@ namespace fs = std::filesystem;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void saveFrameBuffer(const std::string& filename);
-void setPxProp(int layer, int channel, int y, int x, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data);
-void getPxProp(int layer, int channel, int y, int x, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data);
-void setPxAlpha(int layer, int channel, int y, int x, float newAlpha);
-void setPxPos(int layer, int channel, int y, int x, glm::vec3 newPos);
-void setTransPxPos(int idx, glm::vec3 newPos);
-void setTransPxColor(int idx, glm::vec4 newColor);
-void setRawProp(int offsetUnits, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data);
-void movePx(int layer, int channel, int y, int x, glm::vec3 dPos);
 double randDouble();
+
+const int MAX_KEYFRAMES = 2; // Fixed keyframe count per instance
+struct Vec3Keyframe {
+    float time;  // When this keyframe occurs
+    glm::vec3 value;
+};
+struct Vec4Keyframe {
+    float time;
+    glm::vec4 value;
+};
+struct FloatKeyframe {
+    float time;
+    float value;
+};
+struct InstanceData {
+    Vec3Keyframe positionKeyframes[MAX_KEYFRAMES];
+    int numPositionKeyframes;
+
+    Vec4Keyframe colorKeyframes[MAX_KEYFRAMES];
+    int numColorKeyframes;
+
+    FloatKeyframe spherenessKeyframes[MAX_KEYFRAMES];
+    int numSpherenessKeyframes;
+
+    FloatKeyframe scaleKeyframes[MAX_KEYFRAMES];
+    int numScaleKeyframes;
+};
 
 // settings
 const unsigned int SCR_WIDTH = 1920;
@@ -39,15 +58,6 @@ const unsigned int FB_WIDTH = 2160*4;
 
 Camera camera(glm::vec3(0.0f, 0.0f, 50.0f));
 
-map<tuple<int, int, int, int>, int> pxToIdx;
-map<tuple<int, int, int, int>, glm::vec3> pxToPos0;
-map<tuple<int, int>, cv::Size> imgSizes;
-
-
-unsigned int posVBO = 0;
-unsigned int colorVBO = 0;
-unsigned int spherenessVBO = 0;
-unsigned int scaleVBO = 0;
 unsigned int cubeVAO = 0, vertexVBO = 0;
 unsigned int framebuffer = 0;
 unsigned int textureColorbuffer = 0;
@@ -125,12 +135,10 @@ int main()
         }
         sel_files.push_back(path);
         ++pathCounter;
+        if (pathCounter == 2) break;
     }
 
-    glm::vec3* translations = new glm::vec3[numCubes];
-    glm::vec4* colors = new glm::vec4[numCubes];
-    float* spherenesses = new float[numCubes];
-    float* scales = new float[numCubes];
+    vector<InstanceData> instanceData(numCubes);
 
     std::regex del("_");
     float z = 0;
@@ -144,48 +152,76 @@ int main()
         int layer_num = std::stoi(layer_num_str);
         int channel_num = std::stoi(*(++it));
 
-        cv::Mat img;
-        cv::imread(path.string(), img);
-        cv::cvtColor(img, img, cv::COLOR_BGR2RGB);
-        img.convertTo(img, CV_32FC1);
-        img /= 255;
-        imgSizes[tuple<int, int>(layer_num, channel_num)] = {img.cols, img.rows};
+        cv::Mat img1;
+        cv::imread(path.string(), img1);
+        cv::cvtColor(img1, img1, cv::COLOR_BGR2RGB);
+        img1.convertTo(img1, CV_32FC1);
+        img1 /= 255;
 
-        float offsetX = -img.cols/2;
-        float offsetY = -img.rows/2;
+        cv::Mat img2;
+        cv::imread(path.parent_path() / "01_0000.jpg", img2);
+        cv::cvtColor(img2, img2, cv::COLOR_BGR2RGB);
+        img2.convertTo(img2, CV_32FC1);
+        img2 /= 255;
+
+        float offsetX = -img1.cols/2;
+        float offsetY = -img1.rows/2;
         if (layer_num != 0 ) {
             if (channel_num == 0) z += 1.0;
             z += 1.0;
-        } else {
-            // Generate transition pixels, as first layer has max num pixels
-            // We need 9 transition pixels per pixel
-            for (int y = 0; y < img.rows; ++y)
-                for (int x = 0; x < img.cols; ++x)
-                    for (int i = 0; i < 9; ++i) {
-                        translations[flat_idx] = {};
-                        colors[flat_idx] = {};
-                        scales[flat_idx] = 1.0;
-                        spherenesses[flat_idx] = 0.0;
-                        ++flat_idx;
-                    }
         }
-        for (int y = 0; y < img.rows; ++y)
+        float offset2X = -img2.cols/2;
+        float offset2Y = -img2.rows/2;
+        for (int y = 0; y < img1.rows; ++y)
         {
-            for (int x = 0; x < img.cols; ++x)
+            for (int x = 0; x < img1.cols; ++x)
             {
-                glm::vec3 translation;
-                translation.x = (x + offsetX);
-                translation.y = - (y + offsetY);
-                translation.z = z;
-                translations[flat_idx] = translation;
-                auto px = img.at<cv::Vec3f>(y, x);
-                glm::vec4 color{px[0], px[1], px[2], 1.0};
-                colors[flat_idx] = color;
-                spherenesses[flat_idx] = 0.0;
-                scales[flat_idx] = 1.0;
-                tuple lcyx(layer_num, channel_num, y, x);
-                pxToIdx[lcyx] = flat_idx;
-                pxToPos0[lcyx] = translation;
+                auto* kfData = &instanceData[flat_idx];
+
+                // Position keyframes
+                // #0
+                auto* posKf0 = &kfData->positionKeyframes[0];
+                posKf0->value = {(x + offsetX), - (y + offsetY), z};
+                posKf0->time = 0.;
+                // #1
+                auto* posKf1 = &kfData->positionKeyframes[0];
+                int y2 = y/2;
+                int x2 = x/2;
+                float z2 = z+1;
+                posKf1->value = {x2+offset2X, -(y2+offset2Y), z2};
+                posKf1->time = 2.;
+                kfData->numPositionKeyframes = 2;
+
+                // Color keyframes
+                // #0
+                auto* colKf0 = &kfData->colorKeyframes[0];
+                auto px = img1.at<cv::Vec3f>(y, x);
+                colKf0->value = {px[0], px[1], px[2], 1.0};
+                colKf0->time = 0.;
+                // #1
+                auto* colKf1 = &kfData->colorKeyframes[1];
+                auto px2 = img2.at<cv::Vec3f>(y2, x2);
+                colKf0->value = {px2[0], px2[1], px2[2], 1.0};
+                colKf0->time = 2.;
+                //
+                kfData->numColorKeyframes = 2;
+
+                // Sphereness keyframes
+                // #0
+                auto* sphereKf0 = &kfData->spherenessKeyframes[0];
+                sphereKf0->value = 0.;
+                sphereKf0->time = 0.;
+                //
+                kfData->numSpherenessKeyframes = 1;
+
+                // Scale keyframes
+                // #0
+                auto* scaleKf0 = &kfData->scaleKeyframes[0];
+                scaleKf0->value = 1.;
+                scaleKf0->time = 0.;
+                //
+                kfData->numScaleKeyframes = 1;
+
                 ++flat_idx;
             }
         }
@@ -195,25 +231,12 @@ int main()
 
     // store instance data in an array buffer
     // --------------------------------------
-    glGenBuffers(1, &posVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, posVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec3) * numCubes, &translations[0], GL_DYNAMIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-    glGenBuffers(1, &colorVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, colorVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec4) * numCubes, &colors[0], GL_DYNAMIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-    glGenBuffers(1, &spherenessVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, spherenessVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * numCubes, &spherenesses[0], GL_DYNAMIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-    glGenBuffers(1, &scaleVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, scaleVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * numCubes, &scales[0], GL_DYNAMIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    // Upload to SSBO
+    GLuint ssbo;
+    glGenBuffers(1, &ssbo);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, instanceData.size() * sizeof(InstanceData), instanceData.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
 
     // set up vertex data (and buffer(s)) and configure vertex attributes
     // ------------------------------------------------------------------
@@ -236,31 +259,6 @@ int main()
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3*sizeof(float))); // Normals
     glEnableVertexAttribArray(1);
-
-    // set instanced transforms
-    glEnableVertexAttribArray(2);
-    glBindBuffer(GL_ARRAY_BUFFER, posVBO); // this attribute comes from a different vertex buffer
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glVertexAttribDivisor(2, 1); // tell OpenGL this is an instanced vertex attribute.
-    // set instanced colors
-    glEnableVertexAttribArray(3);
-    glBindBuffer(GL_ARRAY_BUFFER, colorVBO); // this attribute comes from a different vertex buffer
-    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glVertexAttribDivisor(3, 1); // tell OpenGL this is an instanced vertex attribute.
-    // set instanced spherenesses
-    glEnableVertexAttribArray(4);
-    glBindBuffer(GL_ARRAY_BUFFER, spherenessVBO); // this attribute comes from a different vertex buffer
-    glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glVertexAttribDivisor(4, 1); // tell OpenGL this is an instanced vertex attribute.
-    // set instanced scales
-    glEnableVertexAttribArray(5);
-    glBindBuffer(GL_ARRAY_BUFFER, scaleVBO); // this attribute comes from a different vertex buffer
-    glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glVertexAttribDivisor(5, 1); // tell OpenGL this is an instanced vertex attribute.
 
     // create high res framebuffer to write to; the final display output will be an anti-aliased downscaled version of this
     // --------------------------------------------------------------------------------------------------------------------
@@ -321,41 +319,6 @@ int main()
     // -------------
     screenShader.use();
     screenShader.setInt("screenTexture", 0);
-
-    // Set opacity
-    int layer = 0;
-    int channel = 0;
-    auto imgSize = imgSizes[tuple<int,int>(layer, channel)];
-    int W, H;
-    W = imgSize.width;
-    H = imgSize.height;
-    glm::vec3 transPxPositions[W*H];
-    glm::vec4 transPxColors[W*H];
-    int idx = 0;
-    for (int y = 0; y < H; ++y)
-        for (int x = 0; x < W; ++x) {
-            auto a = 0.5;
-            auto lcyx0 = tuple(layer, channel, y, x);
-            auto lcyx1 = tuple(layer+1, channel, y/2, x/2);
-            auto p0 = pxToPos0[lcyx0];
-            auto p1 = pxToPos0[lcyx1];
-            transPxPositions[idx] = glm::mix(p0, p1, a);
-
-            auto c0 = colors[pxToIdx[lcyx0]];
-            auto c1 = colors[pxToIdx[lcyx1]];
-            transPxColors[idx] = glm::mix(c0, c1, a);
-            ++idx;
-        }
-    glBindBuffer(GL_ARRAY_BUFFER, posVBO);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(transPxPositions), &transPxPositions[0]);
-    glBindBuffer(GL_ARRAY_BUFFER, colorVBO);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(transPxColors), &transPxColors[0]);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    for (auto i: pxToIdx) {
-        const auto& [l, c, y, x] = i.first;
-        if (l < 1) continue;
-        setPxAlpha(l, c, y, x, 0.);
-    }
 
     // render loop
     // -----------
@@ -481,52 +444,6 @@ void saveFrameBuffer(const std::string& filename) {
     } else {
         std::cerr << "Failed to save image!" << std::endl;
     }
-}
-
-void movePx(int layer, int channel, int y, int x, glm::vec3 dPos) {
-    glm::vec3 oldPos;
-    getPxProp(layer, channel, y, x, posVBO, sizeof(glm::vec3), 1, (void*) &oldPos);
-    glm::vec3 newPos{oldPos.x + dPos.x, oldPos.y + dPos.y, oldPos.z + dPos.z};
-    setPxProp(layer, channel, y, x, posVBO, sizeof(glm::vec3), 1, (void*) &newPos);
-}
-
-void setPxPos(int layer, int channel, int y, int x, glm::vec3 newPos) {
-    setPxProp(layer, channel, y, x, posVBO, sizeof(glm::vec3), 1, (void*) &newPos);
-}
-
-void setPxAlpha(int layer, int channel, int y, int x, float newAlpha) {
-    glm::vec4 oldColor;
-    getPxProp(layer, channel, y, x, colorVBO, sizeof(glm::vec4), 1, (void*) &oldColor);
-    glm::vec4 newColor{oldColor.x, oldColor.y, oldColor.z, newAlpha};
-    setPxProp(layer, channel, y, x, colorVBO, sizeof(glm::vec4), 1, (void*) &newColor);
-}
-
-void setPxProp(int layer, int channel, int y, int x, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data) {
-    tuple<int,int,int,int> lcyx(layer, channel, y, x);
-    int offset = pxToIdx[lcyx];
-    setRawProp(offset, vbo, unitSize, numUnits, data);
-}
-
-void setTransPxColor(int idx, glm::vec4 newColor) {
-    setRawProp(idx, colorVBO, sizeof(glm::vec4), 1, &newColor);
-}
-
-void setTransPxPos(int idx, glm::vec3 newPos) {
-    setRawProp(idx, posVBO, sizeof(glm::vec3), 1, &newPos);
-}
-
-void setRawProp(int offsetUnits, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data) {
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferSubData(GL_ARRAY_BUFFER, offsetUnits*unitSize, numUnits*unitSize, data);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-}
-
-void getPxProp(int layer, int channel, int y, int x, unsigned int vbo, unsigned int unitSize, unsigned int numUnits, void* data) {
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    tuple<int,int,int,int> lcyx(layer, channel, y, x);
-    int offset = pxToIdx[lcyx];
-    glGetBufferSubData(GL_ARRAY_BUFFER, offset*unitSize, numUnits*unitSize, data);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
 double randDouble() {
