@@ -22,19 +22,34 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void saveFrameBuffer(const std::string& filename);
 double randDouble();
 
-const int MAX_KEYFRAMES = 2; // Fixed keyframe count per instance
-struct Vec3Keyframe {
-    float time;  // When this keyframe occurs
-    glm::vec3 value;
+enum class EasingType {
+    LINEAR, IN_QUAD, OUT_QUAD, IN_OUT_QUAD,
+    IN_CUBIC, OUT_CUBIC, IN_OUT_CUBIC,
+    IN_QUART, OUT_QUART, IN_OUT_QUART,
+    IN_EXPO, OUT_EXPO, IN_OUT_EXPO,
+    IN_ELASTIC, OUT_ELASTIC, IN_OUT_ELASTIC,
+    IN_BOUNCE, OUT_BOUNCE, IN_OUT_BOUNCE
 };
-struct Vec4Keyframe {
-    float time;
-    glm::vec4 value;
-};
+
 struct FloatKeyframe {
     float time;
     float value;
+    EasingType easing;
 };
+
+struct Vec3Keyframe {
+    float time;
+    glm::vec3 value;
+    EasingType easing;
+};
+
+struct Vec4Keyframe {
+    float time;
+    glm::vec4 value;
+    EasingType easing;
+};
+const int MAX_KEYFRAMES = 4; // Fixed keyframe count per instance
+
 struct InstanceData {
     Vec3Keyframe positionKeyframes[MAX_KEYFRAMES];
     int numPositionKeyframes;
@@ -176,6 +191,10 @@ int main()
         {
             for (int x = 0; x < img1.cols; ++x)
             {
+                int y2 = y/2;
+                int x2 = x/2;
+                float z2 = z+1;
+
                 auto* kfData = &instanceData[flat_idx];
 
                 // Position keyframes
@@ -183,13 +202,12 @@ int main()
                 auto* posKf0 = &kfData->positionKeyframes[0];
                 posKf0->value = {(x + offsetX), - (y + offsetY), z};
                 posKf0->time = 0.;
+                posKf0->easing = EasingType::IN_OUT_CUBIC;
                 // #1
-                auto* posKf1 = &kfData->positionKeyframes[0];
-                int y2 = y/2;
-                int x2 = x/2;
-                float z2 = z+1;
+                auto* posKf1 = &kfData->positionKeyframes[1];
                 posKf1->value = {x2+offset2X, -(y2+offset2Y), z2};
                 posKf1->time = 2.;
+                //
                 kfData->numPositionKeyframes = 2;
 
                 // Color keyframes
@@ -240,10 +258,6 @@ int main()
 
     // set up vertex data (and buffer(s)) and configure vertex attributes
     // ------------------------------------------------------------------
-    std::vector<glm::vec3> positions = cube.getPositions();
-    std::vector<glm::vec3> normals = cube.getNormals();
-    std::vector<uint32_t> indices = cube.getIndices();
-
     std::vector<float> dataVec = cube.getInterleavedData();
     float vertexData[dataVec.size()];
     std::copy(dataVec.begin(), dataVec.end(), vertexData);
@@ -350,6 +364,8 @@ int main()
 
         shader.setMat4("projection", projection);
         shader.setMat4("view", view);
+        float currentTime = 0.;
+        shader.setFloat("currentTime", currentTime);
 
         // world transformation
         glm::mat4 model = glm::mat4(1.0f);
@@ -396,18 +412,9 @@ int main()
     glDeleteVertexArrays(1, &cubeVAO);
     glDeleteVertexArrays(1, &quadVAO);
     glDeleteBuffers(1, &vertexVBO);
-    glDeleteBuffers(1, &posVBO);
-    glDeleteBuffers(1, &colorVBO);
-    glDeleteBuffers(1, &spherenessVBO);
-    glDeleteBuffers(1, &scaleVBO);
     glDeleteBuffers(1, &quadVBO);
     glDeleteRenderbuffers(1, &rbo);
     glDeleteFramebuffers(1, &framebuffer);
-
-    delete [] translations;
-    delete [] colors;
-    delete [] spherenesses;
-    delete [] scales;
 
     glfwTerminate();
     return 0;
