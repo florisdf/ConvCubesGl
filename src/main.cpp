@@ -176,21 +176,31 @@ int main()
                 int x2 = x/2;
                 float z2 = z+1;
 
-                auto px = img1.at<cv::Vec3f>(y, x);
-                instanceData[flat_idx].colorKfs[0].value[0] = px[0];
-                instanceData[flat_idx].colorKfs[0].value[1] = px[1];
-                instanceData[flat_idx].colorKfs[0].value[2] = px[2];
-                instanceData[flat_idx].colorKfs[0].value[3] = 1.0;
-                instanceData[flat_idx].colorKfs[0].time = 0.0;
-                instanceData[flat_idx].colorKfs[0].easing = EasingType::IN_OUT_CUBIC;
-                instanceData[flat_idx].numColorKfs = 1;
+                auto* kfData = &instanceData[flat_idx];
 
-                instanceData[flat_idx].positionKfs[0].value[0] = (x + offsetX);
-                instanceData[flat_idx].positionKfs[0].value[1] = - (y + offsetY);
-                instanceData[flat_idx].positionKfs[0].value[2] = z;
-                instanceData[flat_idx].positionKfs[0].time = 0.0;
-                instanceData[flat_idx].positionKfs[0].easing = EasingType::IN_OUT_CUBIC;
-                instanceData[flat_idx].numPositionKfs = 1;
+                // Color keyframes
+                // #0
+                auto* colorKf0 = &kfData->colorKfs[0];
+                float* colorKf0Val = colorKf0->value;
+                auto px = img1.at<cv::Vec3f>(y, x);
+                copy_n(px.val, 3, colorKf0Val);
+                colorKf0Val[3] = 1.0;
+                colorKf0->time = 0.0;
+                colorKf0->easing = EasingType::IN_OUT_CUBIC;
+                //
+                kfData->numColorKfs = 1;
+
+                // Position keyframes
+                // #0
+                auto* posKf0 = &kfData->positionKfs[0];
+                float* posKf0Val = posKf0->value;
+                posKf0Val[0] = (x + offsetX);
+                posKf0Val[1] = - (y + offsetY);
+                posKf0Val[2] = z;
+                posKf0->time = 0.0;
+                posKf0->easing = EasingType::IN_OUT_CUBIC;
+                //
+                kfData->numPositionKfs = 1;
                 /**
                 auto* kfData = &instanceData[flat_idx];
 
