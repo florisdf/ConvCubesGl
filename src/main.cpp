@@ -22,7 +22,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void saveFrameBuffer(const std::string& filename);
 double randDouble();
 
-enum class EasingType {
+enum class EasingType : int {
     LINEAR, IN_QUAD, OUT_QUAD, IN_OUT_QUAD,
     IN_CUBIC, OUT_CUBIC, IN_OUT_CUBIC,
     IN_QUART, OUT_QUART, IN_OUT_QUART,
@@ -31,37 +31,23 @@ enum class EasingType {
     IN_BOUNCE, OUT_BOUNCE, IN_OUT_BOUNCE
 };
 
-struct FloatKeyframe {
-    float time;
-    float value;
-    EasingType easing;
-};
-
-struct Vec3Keyframe {
-    float time;
-    glm::vec3 value;
-    EasingType easing;
-};
-
-struct Vec4Keyframe {
-    float time;
-    glm::vec4 value;
-    EasingType easing;
-};
 const int MAX_KEYFRAMES = 4; // Fixed keyframe count per instance
+struct Float4Keyframe {
+    float value[4];
+    float time;
+    EasingType easing;
+};
+struct Float3Keyframe {
+    float value[3];
+    float time;
+    EasingType easing;
+};
 
 struct InstanceData {
-    Vec3Keyframe positionKeyframes[MAX_KEYFRAMES];
-    int numPositionKeyframes;
-
-    Vec4Keyframe colorKeyframes[MAX_KEYFRAMES];
-    int numColorKeyframes;
-
-    FloatKeyframe spherenessKeyframes[MAX_KEYFRAMES];
-    int numSpherenessKeyframes;
-
-    FloatKeyframe scaleKeyframes[MAX_KEYFRAMES];
-    int numScaleKeyframes;
+    Float4Keyframe colorKfs[MAX_KEYFRAMES];
+    int numColorKfs;
+    Float3Keyframe positionKfs[MAX_KEYFRAMES];
+    int numPositionKfs;
 };
 
 // settings
@@ -143,11 +129,6 @@ int main()
         cv::Mat img;
         cv::imread(path.string(), img);
         numCubes += img.rows * img.cols;
-        if (pathCounter == 0) {
-            // Generate transition pixels, as first layer has max num pixels
-            // We need 9 transition pixels per pixel
-            numCubes += img.rows * img.cols * 9;
-        }
         sel_files.push_back(path);
         ++pathCounter;
         if (pathCounter == 2) break;
@@ -195,6 +176,22 @@ int main()
                 int x2 = x/2;
                 float z2 = z+1;
 
+                auto px = img1.at<cv::Vec3f>(y, x);
+                instanceData[flat_idx].colorKfs[0].value[0] = px[0];
+                instanceData[flat_idx].colorKfs[0].value[1] = px[1];
+                instanceData[flat_idx].colorKfs[0].value[2] = px[2];
+                instanceData[flat_idx].colorKfs[0].value[3] = 1.0;
+                instanceData[flat_idx].colorKfs[0].time = 0.0;
+                instanceData[flat_idx].colorKfs[0].easing = EasingType::IN_OUT_CUBIC;
+                instanceData[flat_idx].numColorKfs = 1;
+
+                instanceData[flat_idx].positionKfs[0].value[0] = (x + offsetX);
+                instanceData[flat_idx].positionKfs[0].value[1] = - (y + offsetY);
+                instanceData[flat_idx].positionKfs[0].value[2] = z;
+                instanceData[flat_idx].positionKfs[0].time = 0.0;
+                instanceData[flat_idx].positionKfs[0].easing = EasingType::IN_OUT_CUBIC;
+                instanceData[flat_idx].numPositionKfs = 1;
+                /**
                 auto* kfData = &instanceData[flat_idx];
 
                 // Position keyframes
@@ -214,7 +211,7 @@ int main()
                 // #0
                 auto* colKf0 = &kfData->colorKeyframes[0];
                 auto px = img1.at<cv::Vec3f>(y, x);
-                colKf0->value = {px[0], px[1], px[2], 1.0};
+                instanceData[flat_idx].colorKeyframes[0].value = {0.5, 0.5, 0.5, 1.0};//{px[0], px[1], px[2], 1.0};
                 colKf0->time = 0.;
                 // #1
                 auto* colKf1 = &kfData->colorKeyframes[1];
@@ -222,7 +219,7 @@ int main()
                 colKf0->value = {px2[0], px2[1], px2[2], 1.0};
                 colKf0->time = 2.;
                 //
-                kfData->numColorKeyframes = 2;
+                kfData->numColorKeyframes = 1;
 
                 // Sphereness keyframes
                 // #0
@@ -239,6 +236,7 @@ int main()
                 scaleKf0->time = 0.;
                 //
                 kfData->numScaleKeyframes = 1;
+                */
 
                 ++flat_idx;
             }
@@ -253,8 +251,8 @@ int main()
     GLuint ssbo;
     glGenBuffers(1, &ssbo);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, instanceData.size() * sizeof(InstanceData), instanceData.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, instanceData.size() * sizeof(InstanceData), (const void*)instanceData.data(), GL_STATIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ssbo);
 
     // set up vertex data (and buffer(s)) and configure vertex attributes
     // ------------------------------------------------------------------

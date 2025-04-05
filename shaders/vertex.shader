@@ -1,55 +1,32 @@
-#version 450 core
+#version 460 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
 
 #define MAX_KEYFRAMES 4
 
-struct FloatKeyframe {
+struct Float4Keyframe {
+    float value[4];
     float time;
-    float value;
     int easing;
 };
 
-struct Vec3Keyframe {
+struct Float3Keyframe {
+    float value[3];
     float time;
-    vec3 value;
-    int easing;
-};
-
-struct Vec4Keyframe {
-    float time;
-    vec4 value;
     int easing;
 };
 
 struct InstanceData {
-    Vec3Keyframe positionKeyframes[MAX_KEYFRAMES];
-    int numPositionKeyframes;
-
-    Vec4Keyframe colorKeyframes[MAX_KEYFRAMES];
-    int numColorKeyframes;
-
-    FloatKeyframe spherenessKeyframes[MAX_KEYFRAMES];
-    int numSpherenessKeyframes;
-
-    FloatKeyframe scaleKeyframes[MAX_KEYFRAMES];
-    int numScaleKeyframes;
+    Float4Keyframe colorKfs[MAX_KEYFRAMES];
+    int numColorKfs;
+    Float3Keyframe positionKfs[MAX_KEYFRAMES];
+    int numPositionKfs;
 };
 
-layout(std430, binding = 0) buffer InstanceBuffer {
+// Now define the buffer block
+layout(std430, binding = 2) buffer InstanceBuffer {
     InstanceData instances[];
 };
-
-// Uniforms
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
-uniform float currentTime;
-
-// Outs
-out vec4 fColor;
-out vec3 fNormal;
-
 
 float applyEasing(float t, int easingType) {
     switch (easingType) {
@@ -64,55 +41,67 @@ float applyEasing(float t, int easingType) {
     }
 }
 
-float interpolateFloat(FloatKeyframe keyframes[MAX_KEYFRAMES], int keyframeCount, float time) {
-    if (keyframeCount == 0) return 1.0; // Default to fully visible
-
-    float value = keyframes[0].value;
-
-    for (int i = 0; i < keyframeCount - 1; i++) {
-        if (time >= keyframes[i].time && time <= keyframes[i + 1].time) {
-            float t = (time - keyframes[i].time) / (keyframes[i + 1].time - keyframes[i].time);
-            t = applyEasing(t, keyframes[i].easing);
-            value = mix(keyframes[i].value, keyframes[i + 1].value, t);
-            break;
-        }
-    }
-
-    return value;
-}
-
-vec3 interpolateVec3(Vec3Keyframe keyframes[MAX_KEYFRAMES], int keyframeCount, float time) {
-    if (keyframeCount == 0) return vec3(0.0);
-
-    vec3 value = keyframes[0].value;
-
-    for (int i = 0; i < keyframeCount - 1; i++) {
-        if (time >= keyframes[i].time && time <= keyframes[i + 1].time) {
-            float t = (time - keyframes[i].time) / (keyframes[i + 1].time - keyframes[i].time);
-            t = applyEasing(t, keyframes[i].easing);
-            value = mix(keyframes[i].value, keyframes[i + 1].value, t);
-            break;
-        }
-    }
-
-    return value;
-}
-
-vec4 interpolateVec4(Vec4Keyframe keyframes[MAX_KEYFRAMES], int keyframeCount, float time) {
+vec4 interpolateFloat4(Float4Keyframe keyframes[MAX_KEYFRAMES], int keyframeCount, float time) {
     if (keyframeCount == 0) return vec4(1.0);
 
-    vec4 value = keyframes[0].value;
+    float v0f4[4] = keyframes[0].value;
+    vec4 value = {v0f4[0], v0f4[1], v0f4[2], v0f4[3]};
 
     for (int i = 0; i < keyframeCount - 1; i++) {
         if (time >= keyframes[i].time && time <= keyframes[i + 1].time) {
             float t = (time - keyframes[i].time) / (keyframes[i + 1].time - keyframes[i].time);
             t = applyEasing(t, keyframes[i].easing);
-            value = mix(keyframes[i].value, keyframes[i + 1].value, t);
+            float v1f4[4] = keyframes[1].value;
+            vec4 v2 = {v1f4[0], v1f4[1], v1f4[2], v1f4[3]};
+            float v2f4[4] = keyframes[2].value;
+            vec4 v1 = {v2f4[0], v2f4[1], v2f4[2], v2f4[3]};
+            value = mix(v1, v2, t);
             break;
         }
     }
 
     return value;
+}
+
+
+vec3 interpolateFloat3(Float3Keyframe keyframes[MAX_KEYFRAMES], int keyframeCount, float time) {
+    if (keyframeCount == 0) return vec3(1.0);
+
+    float v0f3[3] = keyframes[0].value;
+    vec3 value = {v0f3[0], v0f3[1], v0f3[2]};
+
+    for (int i = 0; i < keyframeCount - 1; i++) {
+        if (time >= keyframes[i].time && time <= keyframes[i + 1].time) {
+            float t = (time - keyframes[i].time) / (keyframes[i + 1].time - keyframes[i].time);
+            t = applyEasing(t, keyframes[i].easing);
+            float v1f3[3] = keyframes[1].value;
+            vec3 v2 = {v1f3[0], v1f3[1], v1f3[2]};
+            float v2f3[3] = keyframes[2].value;
+            vec3 v1 = {v2f3[0], v2f3[1], v2f3[2]};
+            value = mix(v1, v2, t);
+            break;
+        }
+    }
+
+    return value;
+}
+
+// Uniforms
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+uniform float currentTime;
+
+// Outs
+out vec4 fColor;
+out vec3 fNormal;
+
+vec4 getColor(int index) { 
+    return interpolateFloat4(instances[index].colorKfs, instances[index].numColorKfs, currentTime);
+}
+
+vec3 getPosition(int index) {
+    return interpolateFloat3(instances[index].positionKfs, instances[index].numPositionKfs, currentTime);
 }
 
 void main()
@@ -121,10 +110,10 @@ void main()
     InstanceData instance = instances[instanceID];
 
     // Compute interpolated properties
-    vec3 aOffset = interpolateVec3(instance.positionKeyframes, instance.numPositionKeyframes, currentTime);
-    vec4 aColor = interpolateVec4(instance.colorKeyframes, instance.numColorKeyframes, currentTime);
-    float aSphereness = interpolateFloat(instance.spherenessKeyframes, instance.numSpherenessKeyframes, currentTime);
-    float aScale = interpolateFloat(instance.scaleKeyframes, instance.numScaleKeyframes, currentTime);
+    vec3 aOffset = getPosition(instanceID);//vec3(instanceID%224-112, instanceID/224-112, 0.0);//interpolateVec3(instance.positionKeyframes, instance.numPositionKeyframes, currentTime);
+    vec4 aColor = getColor(instanceID);//instance.colorKeyframes[0].value;//interpolateVec4(instance.colorKeyframes, instance.numColorKeyframes, currentTime);
+    float aSphereness = 0.0;//interpolateFloat(instance.spherenessKeyframes, instance.numSpherenessKeyframes, currentTime);
+    float aScale = 1.0;//interpolateFloat(instance.scaleKeyframes, instance.numScaleKeyframes, currentTime);
 
     // Transform the vertex
     vec4 cubePos = vec4(aPos, 1.0);
