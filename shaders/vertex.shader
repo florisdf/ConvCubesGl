@@ -44,17 +44,17 @@ float applyEasing(float t, int easingType) {
 vec4 interpolateFloat4(Float4Keyframe keyframes[MAX_KEYFRAMES], int keyframeCount, float time) {
     if (keyframeCount == 0) return vec4(1.0);
 
-    float v0f4[4] = keyframes[0].value;
+    float v0f4[4] = keyframes[keyframeCount - 1].value;
     vec4 value = {v0f4[0], v0f4[1], v0f4[2], v0f4[3]};
 
     for (int i = 0; i < keyframeCount - 1; i++) {
         if (time >= keyframes[i].time && time <= keyframes[i + 1].time) {
             float t = (time - keyframes[i].time) / (keyframes[i + 1].time - keyframes[i].time);
             t = applyEasing(t, keyframes[i].easing);
-            float v1f4[4] = keyframes[1].value;
-            vec4 v2 = {v1f4[0], v1f4[1], v1f4[2], v1f4[3]};
-            float v2f4[4] = keyframes[2].value;
-            vec4 v1 = {v2f4[0], v2f4[1], v2f4[2], v2f4[3]};
+            float v1f4[4] = keyframes[i].value;
+            vec4 v1 = {v1f4[0], v1f4[1], v1f4[2], v1f4[3]};
+            float v2f4[4] = keyframes[i+1].value;
+            vec4 v2 = {v2f4[0], v2f4[1], v2f4[2], v2f4[3]};
             value = mix(v1, v2, t);
             break;
         }
@@ -67,17 +67,17 @@ vec4 interpolateFloat4(Float4Keyframe keyframes[MAX_KEYFRAMES], int keyframeCoun
 vec3 interpolateFloat3(Float3Keyframe keyframes[MAX_KEYFRAMES], int keyframeCount, float time) {
     if (keyframeCount == 0) return vec3(1.0);
 
-    float v0f3[3] = keyframes[0].value;
+    float v0f3[3] = keyframes[keyframeCount - 1].value;
     vec3 value = {v0f3[0], v0f3[1], v0f3[2]};
 
     for (int i = 0; i < keyframeCount - 1; i++) {
         if (time >= keyframes[i].time && time <= keyframes[i + 1].time) {
             float t = (time - keyframes[i].time) / (keyframes[i + 1].time - keyframes[i].time);
             t = applyEasing(t, keyframes[i].easing);
-            float v1f3[3] = keyframes[1].value;
-            vec3 v2 = {v1f3[0], v1f3[1], v1f3[2]};
-            float v2f3[3] = keyframes[2].value;
-            vec3 v1 = {v2f3[0], v2f3[1], v2f3[2]};
+            float v1f3[3] = keyframes[i].value;
+            vec3 v1 = {v1f3[0], v1f3[1], v1f3[2]};
+            float v2f3[3] = keyframes[i+1].value;
+            vec3 v2 = {v2f3[0], v2f3[1], v2f3[2]};
             value = mix(v1, v2, t);
             break;
         }
@@ -110,8 +110,8 @@ void main()
     InstanceData instance = instances[instanceID];
 
     // Compute interpolated properties
-    vec3 aOffset = getPosition(instanceID);//vec3(instanceID%224-112, instanceID/224-112, 0.0);//interpolateVec3(instance.positionKeyframes, instance.numPositionKeyframes, currentTime);
-    vec4 aColor = getColor(instanceID);//instance.colorKeyframes[0].value;//interpolateVec4(instance.colorKeyframes, instance.numColorKeyframes, currentTime);
+    vec3 aOffset = getPosition(instanceID);
+    vec4 aColor = getColor(instanceID);
     float aSphereness = 0.0;//interpolateFloat(instance.spherenessKeyframes, instance.numSpherenessKeyframes, currentTime);
     float aScale = 1.0;//interpolateFloat(instance.scaleKeyframes, instance.numScaleKeyframes, currentTime);
 

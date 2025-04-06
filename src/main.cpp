@@ -1,3 +1,4 @@
+#include <boost/format.hpp>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -35,19 +36,19 @@ const int MAX_KEYFRAMES = 4; // Fixed keyframe count per instance
 struct Float4Keyframe {
     float value[4];
     float time;
-    EasingType easing;
+    EasingType easing = EasingType::LINEAR;
 };
 struct Float3Keyframe {
     float value[3];
     float time;
-    EasingType easing;
+    EasingType easing = EasingType::LINEAR;
 };
 
 struct InstanceData {
     Float4Keyframe colorKfs[MAX_KEYFRAMES];
-    int numColorKfs;
+    int numColorKfs = 0;
     Float3Keyframe positionKfs[MAX_KEYFRAMES];
-    int numPositionKfs;
+    int numPositionKfs = 0;
 };
 
 // settings
@@ -124,22 +125,30 @@ int main()
 
     int numCubes = 0;
     vector<fs::path> sel_files{};
+    map<int, vector<fs::path>> layerChanFiles;
     int pathCounter = 0;
+    std::regex del("_");
     for (const auto& path : sorted_files) {
         cv::Mat img;
         cv::imread(path.string(), img);
-        numCubes += img.rows * img.cols;
+        numCubes += 2 * img.rows * img.cols;
         sel_files.push_back(path);
+
+        std::string stem = path.stem();
+        // Create a regex_token_iterator to split the string
+        std::sregex_token_iterator it(stem.begin(), stem.end(), del, -1);
+        string layer_num_str = *it;
+        int layer_num = std::stoi(layer_num_str);
+        layerChanFiles[layer_num].push_back(path);
+
         ++pathCounter;
         if (pathCounter == 2) break;
     }
 
     vector<InstanceData> instanceData(numCubes);
 
-    std::regex del("_");
     float z = 0;
-    int flat_idx = 0;
-    cv::Mat img0 = cv::imread(sel_files[0].string());
+    int flatIdx = 0;
     for (const auto& path : sel_files) {
         std::string stem = path.stem();
         // Create a regex_token_iterator to split the string
@@ -147,6 +156,7 @@ int main()
         string layer_num_str = *it;
         int layer_num = std::stoi(layer_num_str);
         int channel_num = std::stoi(*(++it));
+        if (layer_num > 0) break;
 
         cv::Mat img1;
         cv::imread(path.string(), img1);
@@ -154,102 +164,103 @@ int main()
         img1.convertTo(img1, CV_32FC1);
         img1 /= 255;
 
-        cv::Mat img2;
-        cv::imread(path.parent_path() / "01_0000.jpg", img2);
-        cv::cvtColor(img2, img2, cv::COLOR_BGR2RGB);
-        img2.convertTo(img2, CV_32FC1);
-        img2 /= 255;
-
         float offsetX = -img1.cols/2;
         float offsetY = -img1.rows/2;
         if (layer_num != 0 ) {
             if (channel_num == 0) z += 1.0;
             z += 1.0;
         }
-        float offset2X = -img2.cols/2;
-        float offset2Y = -img2.rows/2;
+
+        // Still image
         for (int y = 0; y < img1.rows; ++y)
         {
             for (int x = 0; x < img1.cols; ++x)
             {
-                int y2 = y/2;
-                int x2 = x/2;
-                float z2 = z+1;
-
-                auto* kfData = &instanceData[flat_idx];
-
-                // Color keyframes
-                // #0
-                auto* colorKf0 = &kfData->colorKfs[0];
+                auto* kfData0 = &instanceData[flatIdx];
+                auto* colorKf0 = &kfData0->colorKfs[0];
                 float* colorKf0Val = colorKf0->value;
                 auto px = img1.at<cv::Vec3f>(y, x);
                 copy_n(px.val, 3, colorKf0Val);
                 colorKf0Val[3] = 1.0;
                 colorKf0->time = 0.0;
-                colorKf0->easing = EasingType::IN_OUT_CUBIC;
-                //
-                kfData->numColorKfs = 1;
+                kfData0->numColorKfs = 1;
 
-                // Position keyframes
-                // #0
-                auto* posKf0 = &kfData->positionKfs[0];
+                auto* posKf0 = &kfData0->positionKfs[0];
                 float* posKf0Val = posKf0->value;
-                posKf0Val[0] = (x + offsetX);
-                posKf0Val[1] = - (y + offsetY);
-                posKf0Val[2] = z;
+                posKf0Val[0] = (x + offsetX); posKf0Val[1] = - (y + offsetY); posKf0Val[2] = z;
                 posKf0->time = 0.0;
-                posKf0->easing = EasingType::IN_OUT_CUBIC;
-                //
-                kfData->numPositionKfs = 1;
-                /**
-                auto* kfData = &instanceData[flat_idx];
-
-                // Position keyframes
-                // #0
-                auto* posKf0 = &kfData->positionKeyframes[0];
-                posKf0->value = {(x + offsetX), - (y + offsetY), z};
-                posKf0->time = 0.;
-                posKf0->easing = EasingType::IN_OUT_CUBIC;
-                // #1
-                auto* posKf1 = &kfData->positionKeyframes[1];
-                posKf1->value = {x2+offset2X, -(y2+offset2Y), z2};
-                posKf1->time = 2.;
-                //
-                kfData->numPositionKeyframes = 2;
-
-                // Color keyframes
-                // #0
-                auto* colKf0 = &kfData->colorKeyframes[0];
-                auto px = img1.at<cv::Vec3f>(y, x);
-                instanceData[flat_idx].colorKeyframes[0].value = {0.5, 0.5, 0.5, 1.0};//{px[0], px[1], px[2], 1.0};
-                colKf0->time = 0.;
-                // #1
-                auto* colKf1 = &kfData->colorKeyframes[1];
-                auto px2 = img2.at<cv::Vec3f>(y2, x2);
-                colKf0->value = {px2[0], px2[1], px2[2], 1.0};
-                colKf0->time = 2.;
-                //
-                kfData->numColorKeyframes = 1;
-
-                // Sphereness keyframes
-                // #0
-                auto* sphereKf0 = &kfData->spherenessKeyframes[0];
-                sphereKf0->value = 0.;
-                sphereKf0->time = 0.;
-                //
-                kfData->numSpherenessKeyframes = 1;
-
-                // Scale keyframes
-                // #0
-                auto* scaleKf0 = &kfData->scaleKeyframes[0];
-                scaleKf0->value = 1.;
-                scaleKf0->time = 0.;
-                //
-                kfData->numScaleKeyframes = 1;
-                */
-
-                ++flat_idx;
+                kfData0->numPositionKfs = 1;
+                ++flatIdx;
             }
+        }
+
+        // Transition image
+        if (!layerChanFiles.count(layer_num + 1)) {
+            continue;
+        }
+        int prevFlatIdx = flatIdx;
+        int chanCounter = 0;
+        for (auto chanPath : layerChanFiles[layer_num + 1]) {
+            flatIdx = prevFlatIdx;
+            cv::Mat img2;
+            cv::imread(chanPath, img2);
+            cv::cvtColor(img2, img2, cv::COLOR_BGR2RGB);
+            img2.convertTo(img2, CV_32FC1);
+            img2 /= 255;
+
+            float offset2X = -img2.cols/2;
+            float offset2Y = -img2.rows/2;
+
+            float timeOffset = chanCounter * 2.0;
+            for (int y = 0; y < img1.rows; ++y)
+            {
+                for (int x = 0; x < img1.cols; ++x)
+                {
+                    int y2 = y/2;
+                    int x2 = x/2;
+                    float z2 = z + 1.;
+
+                    // The pixel should fly separately to each channel in the next layer
+                    auto* kfData = &instanceData[flatIdx];
+
+                    // Color keyframes
+                    // #0
+                    auto* colorKf0 = &kfData->colorKfs[kfData->numColorKfs];
+                    auto* colorKf0Val = colorKf0->value;
+                    auto px = img1.at<cv::Vec3f>(y, x);
+                    copy_n(px.val, 3, colorKf0Val);
+                    colorKf0Val[3] = 1.0;
+                    colorKf0->time = 0.0 + timeOffset;
+                    colorKf0->easing = EasingType::IN_OUT_EXPO;
+                    kfData->numColorKfs++;
+                    // #1
+                    auto* colorKf1 = &kfData->colorKfs[kfData->numColorKfs];
+                    float* colorKf1Val = colorKf1->value;
+                    auto px2 = img2.at<cv::Vec3f>(y2, x2);
+                    copy_n(px2.val, 3, colorKf1Val);
+                    colorKf1Val[3] = 1.0;
+                    colorKf1->time = 1. - (x+y)/img1.total() + timeOffset;
+                    kfData->numColorKfs++;
+
+                    // Position keyframes
+                    // #0
+                    auto* posKf0 = &kfData->positionKfs[kfData->numPositionKfs];
+                    auto* posKf0Val = posKf0->value;
+                    posKf0Val[0] = (x + offsetX); posKf0Val[1] = - (y + offsetY); posKf0Val[2] = z;
+                    posKf0->time = 0.0 + timeOffset;
+                    posKf0->easing = EasingType::IN_OUT_EXPO;
+                    kfData->numPositionKfs++;
+                    // #1
+                    auto* posKf1 = &kfData->positionKfs[kfData->numPositionKfs];
+                    float* posKf1Val = posKf1->value;
+                    posKf1Val[0] = x2+offset2X; posKf1Val[1] = -(y2+offset2Y); posKf1Val[2] = z2;
+                    posKf1->time = 1. - ((float)(x+y))/(2*img1.cols) + timeOffset;
+                    kfData->numPositionKfs++;
+
+                    ++flatIdx;
+                }
+            }
+            ++chanCounter;
         }
     }
 
@@ -345,6 +356,11 @@ int main()
     // render loop
     // -----------
     bool saveFrame = true;
+    int frameCount = 0;
+    auto startTime = chrono::steady_clock::now();
+    float currentTime, prevTime;
+    float fps = 30.;
+    float maxTime = 3;
     while (!glfwWindowShouldClose(window))
     {
         double t0Loop = (double)cv::getTickCount();
@@ -372,7 +388,9 @@ int main()
 
         shader.setMat4("projection", projection);
         shader.setMat4("view", view);
-        float currentTime = 0.;
+        prevTime = currentTime;
+        // currentTime = (chrono::duration<double>(chrono::steady_clock::now() - startTime)).count();
+        currentTime = frameCount / fps;
         shader.setFloat("currentTime", currentTime);
 
         // world transformation
@@ -405,13 +423,17 @@ int main()
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
-        glfwSwapBuffers(window);
+        // glfwSwapBuffers(window);
 
         if (saveFrame) {
-            saveFrameBuffer("frame.png");
-            saveFrame = false;
+            saveFrameBuffer(str(boost::format("frames/frame_%04d.png") % frameCount));
+            cout << currentTime << endl;
+            if (frameCount/fps >= maxTime) break;
+        } else {
             break;
         }
+
+        ++frameCount;
         glfwPollEvents();
     }
 
@@ -443,6 +465,8 @@ void saveFrameBuffer(const std::string& filename) {
 
     // Create a buffer to store pixel data
     std::vector<unsigned char> pixels(3 * width * height);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // Read pixels from the OpenGL framebuffer
     glReadPixels(0, 0, width, height, GL_BGR, GL_UNSIGNED_BYTE, pixels.data());
