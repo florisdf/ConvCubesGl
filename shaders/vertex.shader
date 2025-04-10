@@ -2,7 +2,7 @@
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
 
-#define MAX_KEYFRAMES 4
+#define MAX_KEYFRAMES 10
 
 struct Float4Keyframe {
     float value[4];
@@ -16,6 +16,12 @@ struct Float3Keyframe {
     int easing;
 };
 
+struct FloatKeyframe {
+    float value;
+    float time;
+    int easing;
+};
+
 struct InstanceData {
     Float4Keyframe colorKfs[MAX_KEYFRAMES];
     int numColorKfs;
@@ -24,8 +30,12 @@ struct InstanceData {
 };
 
 // Now define the buffer block
-layout(std430, binding = 2) buffer InstanceBuffer {
-    InstanceData instances[];
+layout(std430, binding = 2) buffer InstanceBuffer2 {
+    InstanceData instances2[];
+};
+
+layout(std430, binding = 3) buffer InstanceBuffer3 {
+    InstanceData instances3[];
 };
 
 float applyEasing(float t, int easingType) {
@@ -37,15 +47,24 @@ float applyEasing(float t, int easingType) {
         case 4: return t * t * t; // IN_CUBIC
         case 5: return 1.0 - pow(1.0 - t, 3.0); // OUT_CUBIC
         case 6: return t < 0.5 ? 4.0 * t * t * t : 1.0 - pow(1.0 - 2.0 * t, 3.0); // IN_OUT_CUBIC
+        case 7: return 0; // Hold
         default: return t; // Default to linear
     }
 }
 
 vec4 interpolateFloat4(Float4Keyframe keyframes[MAX_KEYFRAMES], int keyframeCount, float time) {
     if (keyframeCount == 0) return vec4(1.0);
+    if (time < keyframes[0].time) {
+        // Use first keyframe
+        float vf4[4] = keyframes[0].value;
+        return vec4(vf4[0], vf4[1], vf4[2], vf4[3]);
+    } else if (time > keyframes[keyframeCount - 1].time) {
+        // Use last keyframe
+        float vf4[4] = keyframes[keyframeCount - 1].value;
+        return vec4(vf4[0], vf4[1], vf4[2], vf4[3]);
+    }
 
-    float v0f4[4] = keyframes[keyframeCount - 1].value;
-    vec4 value = {v0f4[0], v0f4[1], v0f4[2], v0f4[3]};
+    vec4 value;
 
     for (int i = 0; i < keyframeCount - 1; i++) {
         if (time >= keyframes[i].time && time <= keyframes[i + 1].time) {
@@ -66,9 +85,17 @@ vec4 interpolateFloat4(Float4Keyframe keyframes[MAX_KEYFRAMES], int keyframeCoun
 
 vec3 interpolateFloat3(Float3Keyframe keyframes[MAX_KEYFRAMES], int keyframeCount, float time) {
     if (keyframeCount == 0) return vec3(1.0);
+    if (time < keyframes[0].time) {
+        // Use first keyframe
+        float vf3[3] = keyframes[0].value;
+        return vec3(vf3[0], vf3[1], vf3[2]);
+    } else if (time > keyframes[keyframeCount - 1].time) {
+        // Use last keyframe
+        float vf3[3] = keyframes[keyframeCount - 1].value;
+        return vec3(vf3[0], vf3[1], vf3[2]);
+    }
 
-    float v0f3[3] = keyframes[keyframeCount - 1].value;
-    vec3 value = {v0f3[0], v0f3[1], v0f3[2]};
+    vec3 value;
 
     for (int i = 0; i < keyframeCount - 1; i++) {
         if (time >= keyframes[i].time && time <= keyframes[i + 1].time) {
@@ -86,34 +113,69 @@ vec3 interpolateFloat3(Float3Keyframe keyframes[MAX_KEYFRAMES], int keyframeCoun
     return value;
 }
 
+
+float interpolateFloat(FloatKeyframe keyframes[MAX_KEYFRAMES], int keyframeCount, float time) {
+    if (keyframeCount == 0) return 0.0;
+    if (time < keyframes[0].time) {
+        // Use first keyframe
+        return keyframes[0].value;
+    } else if (time > keyframes[keyframeCount - 1].time) {
+        // Use last keyframe
+        return keyframes[keyframeCount - 1].value;
+    }
+
+    float value;
+
+    for (int i = 0; i < keyframeCount - 1; i++) {
+        if (time >= keyframes[i].time && time <= keyframes[i + 1].time) {
+            float t = (time - keyframes[i].time) / (keyframes[i + 1].time - keyframes[i].time);
+            t = applyEasing(t, keyframes[i].easing);
+            float v1 = keyframes[i].value;
+            float v2 = keyframes[i+1].value;
+            value = mix(v1, v2, t);
+            break;
+        }
+    }
+
+    return value;
+}
+
 // Uniforms
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 uniform float currentTime;
+uniform int ssboIdx;
 
 // Outs
 out vec4 fColor;
 out vec3 fNormal;
 
 vec4 getColor(int index) { 
-    return interpolateFloat4(instances[index].colorKfs, instances[index].numColorKfs, currentTime);
+    if (ssboIdx == 2) {
+        return interpolateFloat4(instances2[index].colorKfs, instances2[index].numColorKfs, currentTime);
+    } else if (ssboIdx == 3) {
+        return interpolateFloat4(instances3[index].colorKfs, instances3[index].numColorKfs, currentTime);
+    }
 }
 
 vec3 getPosition(int index) {
-    return interpolateFloat3(instances[index].positionKfs, instances[index].numPositionKfs, currentTime);
+    if (ssboIdx == 2) {
+        return interpolateFloat3(instances2[index].positionKfs, instances2[index].numPositionKfs, currentTime);
+    } else if (ssboIdx == 3) {
+        return interpolateFloat3(instances3[index].positionKfs, instances3[index].numPositionKfs, currentTime);
+    }
 }
 
 void main()
 {
     int instanceID = gl_InstanceID;
-    InstanceData instance = instances[instanceID];
 
     // Compute interpolated properties
     vec3 aOffset = getPosition(instanceID);
     vec4 aColor = getColor(instanceID);
-    float aSphereness = 0.0;//interpolateFloat(instance.spherenessKeyframes, instance.numSpherenessKeyframes, currentTime);
-    float aScale = 1.0;//interpolateFloat(instance.scaleKeyframes, instance.numScaleKeyframes, currentTime);
+    float aSphereness = 0.0;
+    float aScale = 1.0;
 
     // Transform the vertex
     vec4 cubePos = vec4(aPos, 1.0);

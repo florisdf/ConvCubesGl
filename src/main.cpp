@@ -26,13 +26,10 @@ double randDouble();
 enum class EasingType : int {
     LINEAR, IN_QUAD, OUT_QUAD, IN_OUT_QUAD,
     IN_CUBIC, OUT_CUBIC, IN_OUT_CUBIC,
-    IN_QUART, OUT_QUART, IN_OUT_QUART,
-    IN_EXPO, OUT_EXPO, IN_OUT_EXPO,
-    IN_ELASTIC, OUT_ELASTIC, IN_OUT_ELASTIC,
-    IN_BOUNCE, OUT_BOUNCE, IN_OUT_BOUNCE
+    HOLD
 };
 
-const int MAX_KEYFRAMES = 4; // Fixed keyframe count per instance
+const int MAX_KEYFRAMES = 10; // Fixed keyframe count per instance
 struct Float4Keyframe {
     float value[4];
     float time;
@@ -126,12 +123,14 @@ int main()
     int numCubes = 0;
     vector<fs::path> sel_files{};
     map<int, vector<fs::path>> layerChanFiles;
+    map<fs::path, unsigned int> pxCumCount;
     int pathCounter = 0;
     std::regex del("_");
     for (const auto& path : sorted_files) {
         cv::Mat img;
         cv::imread(path.string(), img);
-        numCubes += 2 * img.rows * img.cols;
+        pxCumCount[path] = numCubes;
+        numCubes += img.rows * img.cols;
         sel_files.push_back(path);
 
         std::string stem = path.stem();
@@ -142,13 +141,20 @@ int main()
         layerChanFiles[layer_num].push_back(path);
 
         ++pathCounter;
-        if (pathCounter == 2) break;
+        if (pathCounter == 4) break;
     }
+    cout << "Num cubes " << numCubes << endl;
 
-    vector<InstanceData> instanceData(numCubes);
+    vector<InstanceData> instanceDataStill(numCubes);
+    vector<InstanceData> instanceDataTrans(numCubes);
 
     float z = 0;
-    int flatIdx = 0;
+    int fileIdx = 0;
+    float startTime = 0.;
+    const float CHANNEL_DIST = 1.;
+    const float LAYER_DIST = 1.;
+    const float TRANSITION_TIME = 1.;
+
     for (const auto& path : sel_files) {
         std::string stem = path.stem();
         // Create a regex_token_iterator to split the string
@@ -156,7 +162,6 @@ int main()
         string layer_num_str = *it;
         int layer_num = std::stoi(layer_num_str);
         int channel_num = std::stoi(*(++it));
-        if (layer_num > 0) break;
 
         cv::Mat img1;
         cv::imread(path.string(), img1);
@@ -167,113 +172,129 @@ int main()
         float offsetX = -img1.cols/2;
         float offsetY = -img1.rows/2;
         if (layer_num != 0 ) {
-            if (channel_num == 0) z += 1.0;
-            z += 1.0;
+            if (channel_num == 0) z += LAYER_DIST;
+            z += CHANNEL_DIST;
         }
 
+        float endTime = startTime + TRANSITION_TIME;
+
         // Still image
+        int flatIdxStill = pxCumCount[path];
         for (int y = 0; y < img1.rows; ++y)
         {
             for (int x = 0; x < img1.cols; ++x)
             {
-                auto* kfData0 = &instanceData[flatIdx];
+                auto* kfData0 = &instanceDataStill[flatIdxStill++];
                 auto* colorKf0 = &kfData0->colorKfs[0];
+                auto* colorKf1 = &kfData0->colorKfs[1];
                 float* colorKf0Val = colorKf0->value;
+                float* colorKf1Val = colorKf1->value;
                 auto px = img1.at<cv::Vec3f>(y, x);
                 copy_n(px.val, 3, colorKf0Val);
-                colorKf0Val[3] = 1.0;
-                colorKf0->time = 0.0;
-                kfData0->numColorKfs = 1;
+                copy_n(px.val, 3, colorKf1Val);
+                colorKf0Val[3] = 0.0;
+                colorKf1Val[3] = 1.0;
+                colorKf0->time = startTime;
+                colorKf1->time = endTime;
+                colorKf0->easing = EasingType::HOLD;
+                kfData0->numColorKfs = 2;
 
                 auto* posKf0 = &kfData0->positionKfs[0];
                 float* posKf0Val = posKf0->value;
                 posKf0Val[0] = (x + offsetX); posKf0Val[1] = - (y + offsetY); posKf0Val[2] = z;
                 posKf0->time = 0.0;
                 kfData0->numPositionKfs = 1;
-                ++flatIdx;
             }
         }
 
         // Transition image
-        if (!layerChanFiles.count(layer_num + 1)) {
-            continue;
-        }
-        int prevFlatIdx = flatIdx;
-        int chanCounter = 0;
-        for (auto chanPath : layerChanFiles[layer_num + 1]) {
-            flatIdx = prevFlatIdx;
-            cv::Mat img2;
-            cv::imread(chanPath, img2);
-            cv::cvtColor(img2, img2, cv::COLOR_BGR2RGB);
-            img2.convertTo(img2, CV_32FC1);
-            img2 /= 255;
+        if (layerChanFiles.count(layer_num-1)) {
+            int prevChannelCounter = 0;
+            for (auto chanPath : layerChanFiles[layer_num-1]) {
+                ++prevChannelCounter;
+                cv::Mat img2;
+                cv::imread(chanPath, img2);
+                cv::cvtColor(img2, img2, cv::COLOR_BGR2RGB);
+                img2.convertTo(img2, CV_32FC1);
+                img2 /= 255;
 
-            float offset2X = -img2.cols/2;
-            float offset2Y = -img2.rows/2;
+                float offset2X = -img2.cols/2;
+                float offset2Y = -img2.rows/2;
 
-            float timeOffset = chanCounter * 2.0;
-            for (int y = 0; y < img1.rows; ++y)
-            {
-                for (int x = 0; x < img1.cols; ++x)
+                unsigned int flatIdxTrans = pxCumCount[chanPath];
+
+                for (int y2 = 0; y2 < img2.rows; ++y2)
                 {
-                    int y2 = y/2;
-                    int x2 = x/2;
-                    float z2 = z + 1.;
+                    for (int x2 = 0; x2 < img2.cols; ++x2)
+                    {
+                        int y = y2/2;
+                        int x = x2/2;
+                        float z2 = z - LAYER_DIST - CHANNEL_DIST*prevChannelCounter;
 
-                    // The pixel should fly separately to each channel in the next layer
-                    auto* kfData = &instanceData[flatIdx];
+                        // The pixel should fly separately to each channel in the next layer
+                        auto* kfData = &instanceDataTrans[flatIdxTrans++];
 
-                    // Color keyframes
-                    // #0
-                    auto* colorKf0 = &kfData->colorKfs[kfData->numColorKfs];
-                    auto* colorKf0Val = colorKf0->value;
-                    auto px = img1.at<cv::Vec3f>(y, x);
-                    copy_n(px.val, 3, colorKf0Val);
-                    colorKf0Val[3] = 1.0;
-                    colorKf0->time = 0.0 + timeOffset;
-                    colorKf0->easing = EasingType::IN_OUT_EXPO;
-                    kfData->numColorKfs++;
-                    // #1
-                    auto* colorKf1 = &kfData->colorKfs[kfData->numColorKfs];
-                    float* colorKf1Val = colorKf1->value;
-                    auto px2 = img2.at<cv::Vec3f>(y2, x2);
-                    copy_n(px2.val, 3, colorKf1Val);
-                    colorKf1Val[3] = 1.0;
-                    colorKf1->time = 1. - (x+y)/img1.total() + timeOffset;
-                    kfData->numColorKfs++;
+                        // Color keyframes
+                        // #0
+                        auto* colorKf1 = &kfData->colorKfs[kfData->numColorKfs++];
+                        auto* colorKf2 = &kfData->colorKfs[kfData->numColorKfs++];
+                        float* colorKf1Val = colorKf1->value;
+                        float* colorKf2Val = colorKf2->value;
+                        auto px2 = img2.at<cv::Vec3f>(y2, x2);
+                        copy_n(px2.val, 3, colorKf2Val);
+                        colorKf1Val[3] = 0.0;
+                        colorKf2Val[3] = 1.0;
+                        colorKf1->time = startTime;
+                        colorKf2->time = startTime;
+                        colorKf1->easing = EasingType::HOLD;
+                        colorKf2->easing = EasingType::IN_OUT_QUAD;
+                        // #1
+                        auto* colorKf0 = &kfData->colorKfs[kfData->numColorKfs++];
+                        auto* colorKf0Val = colorKf0->value;
+                        auto px = img1.at<cv::Vec3f>(y, x);
+                        copy_n(px.val, 3, colorKf0Val);
+                        colorKf0Val[3] = 1.0;
+                        colorKf0->time = endTime;
+                        colorKf0->easing = EasingType::HOLD;
 
-                    // Position keyframes
-                    // #0
-                    auto* posKf0 = &kfData->positionKfs[kfData->numPositionKfs];
-                    auto* posKf0Val = posKf0->value;
-                    posKf0Val[0] = (x + offsetX); posKf0Val[1] = - (y + offsetY); posKf0Val[2] = z;
-                    posKf0->time = 0.0 + timeOffset;
-                    posKf0->easing = EasingType::IN_OUT_EXPO;
-                    kfData->numPositionKfs++;
-                    // #1
-                    auto* posKf1 = &kfData->positionKfs[kfData->numPositionKfs];
-                    float* posKf1Val = posKf1->value;
-                    posKf1Val[0] = x2+offset2X; posKf1Val[1] = -(y2+offset2Y); posKf1Val[2] = z2;
-                    posKf1->time = 1. - ((float)(x+y))/(2*img1.cols) + timeOffset;
-                    kfData->numPositionKfs++;
-
-                    ++flatIdx;
+                        // Position keyframes
+                        // #0
+                        auto* posKf1 = &kfData->positionKfs[kfData->numPositionKfs++];
+                        float* posKf1Val = posKf1->value;
+                        posKf1Val[0] = x2+offset2X; posKf1Val[1] = -(y2+offset2Y); posKf1Val[2] = z2;
+                        posKf1->time = startTime;
+                        posKf1->easing = EasingType::IN_OUT_QUAD;
+                        // #1
+                        auto* posKf0 = &kfData->positionKfs[kfData->numPositionKfs++];
+                        auto* posKf0Val = posKf0->value;
+                        posKf0Val[0] = (x + offsetX); posKf0Val[1] = - (y + offsetY); posKf0Val[2] = z;
+                        posKf0->time = endTime;
+                        posKf0->easing = EasingType::HOLD;
+                    }
                 }
             }
-            ++chanCounter;
+            ++fileIdx;
         }
+        startTime = endTime;
     }
+    cout << __LINE__ << endl;
 
     Cube cube(5, 1.0);
 
     // store instance data in an array buffer
     // --------------------------------------
     // Upload to SSBO
-    GLuint ssbo;
-    glGenBuffers(1, &ssbo);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, instanceData.size() * sizeof(InstanceData), (const void*)instanceData.data(), GL_STATIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ssbo);
+    GLuint ssboStill;
+    glGenBuffers(1, &ssboStill);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboStill);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, instanceDataStill.size() * sizeof(InstanceData), (const void*)instanceDataStill.data(), GL_STATIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ssboStill);
+
+    GLuint ssboTrans;
+    glGenBuffers(1, &ssboTrans);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboTrans);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, instanceDataTrans.size() * sizeof(InstanceData), (const void*)instanceDataTrans.data(), GL_STATIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, ssboTrans);
 
     // set up vertex data (and buffer(s)) and configure vertex attributes
     // ------------------------------------------------------------------
@@ -357,10 +378,10 @@ int main()
     // -----------
     bool saveFrame = true;
     int frameCount = 0;
-    auto startTime = chrono::steady_clock::now();
+    //auto startTime = chrono::steady_clock::now();
     float currentTime, prevTime;
-    float fps = 30.;
-    float maxTime = 3;
+    float fps = 10.;
+    float maxTime = 5;
     while (!glfwWindowShouldClose(window))
     {
         double t0Loop = (double)cv::getTickCount();
@@ -397,6 +418,9 @@ int main()
         glm::mat4 model = glm::mat4(1.0f);
         shader.setMat4("model", model);
         glBindVertexArray(cubeVAO);
+        shader.setInt("ssboIdx", 3);  // Transition cubes
+        glDrawArraysInstanced(GL_TRIANGLES, 0, cube.getNumIndices(), numCubes);
+        shader.setInt("ssboIdx", 2);  // Still cubes
         glDrawArraysInstanced(GL_TRIANGLES, 0, cube.getNumIndices(), numCubes);
         //glDrawArrays(GL_TRIANGLES, 0, cube.getNumIndices());
         glBindVertexArray(0);
