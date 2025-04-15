@@ -74,8 +74,8 @@ void main()
             int endIdx = transInstance.endIdxs[i];
             InstanceDataStill endInstance = instancesStill[endIdx];
 
-            float t0 = i == 0 ? startInstance.time : transInstance.times[i-1];
-            float t1 = transInstance.times[i];
+            float t0 = transInstance.times[i];
+            float t1 = i == transInstance.keyframeCount - 1 ? endInstance.time : transInstance.times[i+1];
             if (t0 <= currentTime && currentTime <= t1) {
                 //float duration = min(t1 - t0, transMaxDuration);
                 float t = (currentTime - t0) / (t1 - t0);

@@ -144,27 +144,6 @@ int main()
         sorted_files.insert(entry.path());
     }
 
-    // TODO: arrays for
-    //   - Appearance time for each still pixel
-    //   - Color of each still pixel
-    //       = start color of transition pixel in layer + 1
-    //   - end colors of transition pixel in layer
-    //       - for each pixel in the next layer
-    //   - Start times of transition animation for each transition pixel
-    //       - for each pixel in the next layer
-    //   - Global animation duration of transition pixels
-    //
-    //   Gegeven aantal pixels per laag en per kanaal
-
-    // If still pixel: has fixed index; render if beyond appearance time
-    // If trans pixel:
-    //   - compute source and destination index from time
-    //      - time 
-    //   - interpollate src and dest
-
-    // Still cube i takes color i from array
-    // Transition cube i takes start color i from array
-    //     end color 
     int numCubes = 0;
     vector<fs::path> sel_files{};
     map<int, vector<fs::path>> layerChanFiles;
@@ -191,7 +170,7 @@ int main()
     int fileIdx = 0;
     const float CHANNEL_DIST = 1.;
     const float LAYER_DIST = 1.;
-    const float LAYER_DURATION = 3.;
+    const float LAYER_DURATION = 20.;
     const float LAYER_DELAY = 1;
 
     for (const auto& path : sel_files) {
@@ -249,84 +228,13 @@ int main()
                     int endFlatIdx = chanFlatIdx0 + (y2*nColsNextLayer) + x2;
                     transData->endIdxs[chanIdx] = endFlatIdx;
                     float a = (float)(chanIdx+1) / nChansNextLayer;
-                    transData->times[chanIdx] = chanEndTime;
+                    transData->times[chanIdx] = chanStartTime;
                     transData->keyframeCount++;
                     ++chanIdx;
                 }
                 ++flatIdxStill;
             }
         }
-
-        /**
-        // Transition image
-        if (layerChanFiles.count(cInfo.layer-1)) {
-            int prevChannelCounter = 0;
-            for (auto chanPath : layerChanFiles[cInfo.layer-1]) {
-                ++prevChannelCounter;
-                cv::Mat img2;
-                cv::imread(chanPath, img2);
-                cv::cvtColor(img2, img2, cv::COLOR_BGR2RGB);
-                img2.convertTo(img2, CV_32FC1);
-                img2 /= 255;
-
-                float offset2X = -img2.cols/2;
-                float offset2Y = -img2.rows/2;
-
-                unsigned int flatIdxTrans = pxCumCount[cInfo.layer][cInfo.channel];
-
-                for (int y2 = 0; y2 < img2.rows; ++y2)
-                {
-                    for (int x2 = 0; x2 < img2.cols; ++x2)
-                    {
-                        int y = y2/2;
-                        int x = x2/2;
-                        float z2 = z - LAYER_DIST - CHANNEL_DIST*prevChannelCounter;
-
-                        // The pixel should fly separately to each channel in the next layer
-                        auto* kfData = &instanceDataTrans[flatIdxTrans++];
-
-                        // Color keyframes
-                        // #0
-                        auto* colorKf1 = &kfData->colorKfs[kfData->numColorKfs++];
-                        auto* colorKf2 = &kfData->colorKfs[kfData->numColorKfs++];
-                        float* colorKf1Val = colorKf1->value;
-                        float* colorKf2Val = colorKf2->value;
-                        auto px2 = img2.at<cv::Vec3f>(y2, x2);
-                        copy_n(px2.val, 3, colorKf2Val);
-                        colorKf1Val[3] = 0.0;
-                        colorKf2Val[3] = 1.0;
-                        colorKf1->time = startTime;
-                        colorKf2->time = startTime;
-                        colorKf1->easing = EasingType::HOLD;
-                        colorKf2->easing = EasingType::IN_OUT_QUAD;
-                        // #1
-                        auto* colorKf0 = &kfData->colorKfs[kfData->numColorKfs++];
-                        auto* colorKf0Val = colorKf0->value;
-                        auto px = img1.at<cv::Vec3f>(y, x);
-                        copy_n(px.val, 3, colorKf0Val);
-                        colorKf0Val[3] = 1.0;
-                        colorKf0->time = endTime;
-                        colorKf0->easing = EasingType::HOLD;
-
-                        // Position keyframes
-                        // #0
-                        auto* posKf1 = &kfData->positionKfs[kfData->numPositionKfs++];
-                        float* posKf1Val = posKf1->value;
-                        posKf1Val[0] = x2+offset2X; posKf1Val[1] = -(y2+offset2Y); posKf1Val[2] = z2;
-                        posKf1->time = startTime;
-                        posKf1->easing = EasingType::IN_OUT_QUAD;
-                        // #1
-                        auto* posKf0 = &kfData->positionKfs[kfData->numPositionKfs++];
-                        auto* posKf0Val = posKf0->value;
-                        posKf0Val[0] = (x + offsetX); posKf0Val[1] = - (y + offsetY); posKf0Val[2] = z;
-                        posKf0->time = endTime;
-                        posKf0->easing = EasingType::HOLD;
-                    }
-                }
-            }
-            ++fileIdx;
-        }
-        */
     }
 
     Cube cube(5, 1.0);
@@ -428,9 +336,10 @@ int main()
     // -----------
     bool saveFrame = true;
     int frameCount = 0;
+    auto startTime = chrono::steady_clock::now();
     float currentTime, prevTime;
     float fps = 10.;
-    float maxTime = 15;
+    float maxTime = 2;
     while (!glfwWindowShouldClose(window))
     {
         double t0Loop = (double)cv::getTickCount();
@@ -473,9 +382,6 @@ int main()
         glDrawArraysInstanced(GL_TRIANGLES, 0, cube.getNumIndices(), numCubes);
         //glDrawArrays(GL_TRIANGLES, 0, cube.getNumIndices());
         glBindVertexArray(0);
-        double t1Loop = (double)cv::getTickCount();
-        double tLoop = (t1Loop - t0Loop) / cv::getTickFrequency();
-        std::cout << "tLoop: " << tLoop << " s" << std::endl;
 
         // second pass rendering to screen
         // --------------------------------
@@ -496,14 +402,15 @@ int main()
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
-        //glfwSwapBuffers(window);
+        // glfwSwapBuffers(window);
+        double t1Loop = (double)cv::getTickCount();
+        double tLoop = (t1Loop - t0Loop) / cv::getTickFrequency();
+        std::cout << "tLoop: " << tLoop << " s" << std::endl;
 
         if (saveFrame) {
             saveFrameBuffer(str(boost::format("frames/frame_%04d.png") % frameCount));
             cout << currentTime << endl;
             if (frameCount/fps >= maxTime) break;
-        } else {
-            break;
         }
 
         ++frameCount;
