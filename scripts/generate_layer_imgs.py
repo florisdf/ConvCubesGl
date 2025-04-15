@@ -34,12 +34,12 @@ def main(img_path: Path, out_dir: Path):
             x = layer(x)
         if (
             isinstance(layer, nn.Conv2d)
-            or isinstance(layer, nn.MaxPool2d)
             or isinstance(layer, nn.Sequential)
             or isinstance(layer, nn.AdaptiveAvgPool2d)
         ):
+            print(name, x.shape)
             N, C, H, W = x.shape
-            for c in range(0, C - 3, 3):
+            for i, c in enumerate(range(0, C - 3, 3)):
                 img = x[0, c:c+3].permute((1, 2, 0)).cpu().numpy()
                 q10 = np.quantile(img, 0.1)
                 img -= q10
@@ -48,7 +48,7 @@ def main(img_path: Path, out_dir: Path):
                 img = np.clip(img, 0, 1)
                 img = (img * 255).astype(np.uint8)
                 Image.fromarray(img).save(
-                    out_dir / f'{layer_counter:02}_{c:04}.jpg')
+                    out_dir / f'{layer_counter:02}_{i:04}.jpg')
             layer_counter += 1
 
 

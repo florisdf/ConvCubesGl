@@ -29,7 +29,7 @@ enum class EasingType : int {
     HOLD
 };
 
-const int MAX_KEYFRAMES = 10; // Fixed keyframe count per instance
+const int TRANS_KEYFRAMES = 170; // Fixed keyframe count per instance
 struct Float4Keyframe {
     float value[4];
     float time;
@@ -41,12 +41,36 @@ struct Float3Keyframe {
     EasingType easing = EasingType::LINEAR;
 };
 
-struct InstanceData {
-    Float4Keyframe colorKfs[MAX_KEYFRAMES];
-    int numColorKfs = 0;
-    Float3Keyframe positionKfs[MAX_KEYFRAMES];
-    int numPositionKfs = 0;
+struct InstanceDataStill {
+    float color[4];
+    float position[3];
+    float time;
 };
+
+struct InstanceDataTrans {
+    float maxDuration;
+    EasingType easing;
+    int keyframeCount;
+    float times[TRANS_KEYFRAMES];
+    int endIdxs[TRANS_KEYFRAMES];
+};
+
+struct ChanInfo {
+    ChanInfo(int l, int c) : layer(l), channel(c) {};
+    const int layer;
+    const int channel;
+};
+
+ChanInfo pathToInfo(const fs::path &path) {
+    std::regex del("_");
+    std::string stem = path.stem();
+    // Create a regex_token_iterator to split the string
+    std::sregex_token_iterator it(stem.begin(), stem.end(), del, -1);
+    string layer_num_str = *it;
+    int layer_num = std::stoi(layer_num_str);
+    int channel_num = std::stoi(*(++it));
+    return {layer_num, channel_num};
+}
 
 // settings
 const unsigned int SCR_WIDTH = 1920;
@@ -120,49 +144,58 @@ int main()
         sorted_files.insert(entry.path());
     }
 
+    // TODO: arrays for
+    //   - Appearance time for each still pixel
+    //   - Color of each still pixel
+    //       = start color of transition pixel in layer + 1
+    //   - end colors of transition pixel in layer
+    //       - for each pixel in the next layer
+    //   - Start times of transition animation for each transition pixel
+    //       - for each pixel in the next layer
+    //   - Global animation duration of transition pixels
+    //
+    //   Gegeven aantal pixels per laag en per kanaal
+
+    // If still pixel: has fixed index; render if beyond appearance time
+    // If trans pixel:
+    //   - compute source and destination index from time
+    //      - time 
+    //   - interpollate src and dest
+
+    // Still cube i takes color i from array
+    // Transition cube i takes start color i from array
+    //     end color 
     int numCubes = 0;
     vector<fs::path> sel_files{};
     map<int, vector<fs::path>> layerChanFiles;
-    map<fs::path, unsigned int> pxCumCount;
+    map<int, map<int, int>> pxCumCount;
     int pathCounter = 0;
-    std::regex del("_");
     for (const auto& path : sorted_files) {
         cv::Mat img;
         cv::imread(path.string(), img);
-        pxCumCount[path] = numCubes;
+        const auto& cInfo = pathToInfo(path);
+        pxCumCount[cInfo.layer][cInfo.channel] = numCubes;
         numCubes += img.rows * img.cols;
         sel_files.push_back(path);
 
-        std::string stem = path.stem();
-        // Create a regex_token_iterator to split the string
-        std::sregex_token_iterator it(stem.begin(), stem.end(), del, -1);
-        string layer_num_str = *it;
-        int layer_num = std::stoi(layer_num_str);
-        layerChanFiles[layer_num].push_back(path);
+        layerChanFiles[cInfo.layer].push_back(path);
 
         ++pathCounter;
-        if (pathCounter == 4) break;
+        // if (pathCounter == 10) break;
     }
-    cout << "Num cubes " << numCubes << endl;
 
-    vector<InstanceData> instanceDataStill(numCubes);
-    vector<InstanceData> instanceDataTrans(numCubes);
+    vector<InstanceDataStill> instanceDataStill(numCubes);
+    vector<InstanceDataTrans> instanceDataTrans(numCubes);
 
     float z = 0;
     int fileIdx = 0;
-    float startTime = 0.;
     const float CHANNEL_DIST = 1.;
     const float LAYER_DIST = 1.;
-    const float TRANSITION_TIME = 1.;
+    const float LAYER_DURATION = 3.;
+    const float LAYER_DELAY = 1;
 
     for (const auto& path : sel_files) {
-        std::string stem = path.stem();
-        // Create a regex_token_iterator to split the string
-        std::sregex_token_iterator it(stem.begin(), stem.end(), del, -1);
-        string layer_num_str = *it;
-        int layer_num = std::stoi(layer_num_str);
-        int channel_num = std::stoi(*(++it));
-
+        const auto& cInfo = pathToInfo(path);
         cv::Mat img1;
         cv::imread(path.string(), img1);
         cv::cvtColor(img1, img1, cv::COLOR_BGR2RGB);
@@ -171,46 +204,64 @@ int main()
 
         float offsetX = -img1.cols/2;
         float offsetY = -img1.rows/2;
-        if (layer_num != 0 ) {
-            if (channel_num == 0) z += LAYER_DIST;
+        if (cInfo.layer != 0 ) {
+            if (cInfo.channel == 0) z += LAYER_DIST;
             z += CHANNEL_DIST;
         }
 
-        float endTime = startTime + TRANSITION_TIME;
+        float currLayerStartTime = (cInfo.layer - 1) * (LAYER_DURATION + LAYER_DELAY);  // When first pixel of first channel starts to appear
+        int nChansCurrLayer = pxCumCount[cInfo.layer].size();
+        float chanDuration = LAYER_DURATION / nChansCurrLayer;
+        float currChanStartTime = currLayerStartTime + cInfo.channel * chanDuration;
+        float currChanEndTime = currChanStartTime + chanDuration;
 
-        // Still image
-        int flatIdxStill = pxCumCount[path];
+        float nextLayerStartTime = cInfo.layer * (LAYER_DURATION + LAYER_DELAY);  // When first pixel of first channel starts to appear
+
+        // Still image + transition image
+        int flatIdxStill = pxCumCount[cInfo.layer][cInfo.channel];
+        int nColsNextLayer = img1.cols / 2;
+        int nChansNextLayer = pxCumCount[cInfo.layer + 1].size();
         for (int y = 0; y < img1.rows; ++y)
         {
             for (int x = 0; x < img1.cols; ++x)
             {
-                auto* kfData0 = &instanceDataStill[flatIdxStill++];
-                auto* colorKf0 = &kfData0->colorKfs[0];
-                auto* colorKf1 = &kfData0->colorKfs[1];
-                float* colorKf0Val = colorKf0->value;
-                float* colorKf1Val = colorKf1->value;
+                auto* stillData = &instanceDataStill[flatIdxStill];
                 auto px = img1.at<cv::Vec3f>(y, x);
-                copy_n(px.val, 3, colorKf0Val);
-                copy_n(px.val, 3, colorKf1Val);
-                colorKf0Val[3] = 0.0;
-                colorKf1Val[3] = 1.0;
-                colorKf0->time = startTime;
-                colorKf1->time = endTime;
-                colorKf0->easing = EasingType::HOLD;
-                kfData0->numColorKfs = 2;
-
-                auto* posKf0 = &kfData0->positionKfs[0];
-                float* posKf0Val = posKf0->value;
+                copy_n(px.val, 3, stillData->color);
+                stillData->color[3] = 1.0;
+                stillData->time = currChanEndTime;
+                float* posKf0Val = stillData->position;
                 posKf0Val[0] = (x + offsetX); posKf0Val[1] = - (y + offsetY); posKf0Val[2] = z;
-                posKf0->time = 0.0;
-                kfData0->numPositionKfs = 1;
+
+                auto* transData = &instanceDataTrans[flatIdxStill];
+                transData->easing = EasingType::IN_OUT_QUAD;
+                transData->keyframeCount = 0;
+                transData->maxDuration = 0.5;
+
+                for (auto item : pxCumCount[cInfo.layer + 1]) {
+                    int chanIdx = item.first;
+                    float chanDuration = LAYER_DURATION / nChansNextLayer;
+                    float chanStartTime = nextLayerStartTime + chanIdx * chanDuration;
+                    float chanEndTime = chanStartTime + chanDuration;
+                    int chanFlatIdx0 = item.second;
+                    int y2 = y/2;
+                    int x2 = x/2;
+                    int endFlatIdx = chanFlatIdx0 + (y2*nColsNextLayer) + x2;
+                    transData->endIdxs[chanIdx] = endFlatIdx;
+                    float a = (float)(chanIdx+1) / nChansNextLayer;
+                    transData->times[chanIdx] = chanEndTime;
+                    transData->keyframeCount++;
+                    ++chanIdx;
+                }
+                ++flatIdxStill;
             }
         }
 
+        /**
         // Transition image
-        if (layerChanFiles.count(layer_num-1)) {
+        if (layerChanFiles.count(cInfo.layer-1)) {
             int prevChannelCounter = 0;
-            for (auto chanPath : layerChanFiles[layer_num-1]) {
+            for (auto chanPath : layerChanFiles[cInfo.layer-1]) {
                 ++prevChannelCounter;
                 cv::Mat img2;
                 cv::imread(chanPath, img2);
@@ -221,7 +272,7 @@ int main()
                 float offset2X = -img2.cols/2;
                 float offset2Y = -img2.rows/2;
 
-                unsigned int flatIdxTrans = pxCumCount[chanPath];
+                unsigned int flatIdxTrans = pxCumCount[cInfo.layer][cInfo.channel];
 
                 for (int y2 = 0; y2 < img2.rows; ++y2)
                 {
@@ -275,9 +326,8 @@ int main()
             }
             ++fileIdx;
         }
-        startTime = endTime;
+        */
     }
-    cout << __LINE__ << endl;
 
     Cube cube(5, 1.0);
 
@@ -287,13 +337,13 @@ int main()
     GLuint ssboStill;
     glGenBuffers(1, &ssboStill);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboStill);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, instanceDataStill.size() * sizeof(InstanceData), (const void*)instanceDataStill.data(), GL_STATIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, instanceDataStill.size() * sizeof(InstanceDataStill), (const void*)instanceDataStill.data(), GL_STATIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ssboStill);
 
     GLuint ssboTrans;
     glGenBuffers(1, &ssboTrans);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboTrans);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, instanceDataTrans.size() * sizeof(InstanceData), (const void*)instanceDataTrans.data(), GL_STATIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, instanceDataTrans.size() * sizeof(InstanceDataTrans), (const void*)instanceDataTrans.data(), GL_STATIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, ssboTrans);
 
     // set up vertex data (and buffer(s)) and configure vertex attributes
@@ -378,10 +428,9 @@ int main()
     // -----------
     bool saveFrame = true;
     int frameCount = 0;
-    //auto startTime = chrono::steady_clock::now();
     float currentTime, prevTime;
     float fps = 10.;
-    float maxTime = 5;
+    float maxTime = 15;
     while (!glfwWindowShouldClose(window))
     {
         double t0Loop = (double)cv::getTickCount();
@@ -418,9 +467,9 @@ int main()
         glm::mat4 model = glm::mat4(1.0f);
         shader.setMat4("model", model);
         glBindVertexArray(cubeVAO);
-        shader.setInt("ssboIdx", 3);  // Transition cubes
+        shader.setBool("isStill", false);  // Transition cubes
         glDrawArraysInstanced(GL_TRIANGLES, 0, cube.getNumIndices(), numCubes);
-        shader.setInt("ssboIdx", 2);  // Still cubes
+        shader.setInt("isStill", true);  // Still cubes
         glDrawArraysInstanced(GL_TRIANGLES, 0, cube.getNumIndices(), numCubes);
         //glDrawArrays(GL_TRIANGLES, 0, cube.getNumIndices());
         glBindVertexArray(0);
@@ -447,7 +496,7 @@ int main()
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
-        // glfwSwapBuffers(window);
+        //glfwSwapBuffers(window);
 
         if (saveFrame) {
             saveFrameBuffer(str(boost::format("frames/frame_%04d.png") % frameCount));
