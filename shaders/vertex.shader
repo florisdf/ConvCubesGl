@@ -14,7 +14,7 @@ struct InstanceDataTrans {
     float maxDuration;
     int easing;
     int keyframeCount;
-    float times[TRANS_KEYFRAMES];
+    float startTimes[TRANS_KEYFRAMES];
     int endIdxs[TRANS_KEYFRAMES];
 };
 
@@ -74,8 +74,8 @@ void main()
             int endIdx = transInstance.endIdxs[i];
             InstanceDataStill endInstance = instancesStill[endIdx];
 
-            float t0 = transInstance.times[i];
-            float t1 = i == transInstance.keyframeCount - 1 ? endInstance.time : transInstance.times[i+1];
+            float t0 = transInstance.startTimes[i];
+            float t1 = endInstance.time;
             if (t0 <= currentTime && currentTime <= t1) {
                 //float duration = min(t1 - t0, transMaxDuration);
                 float t = (currentTime - t0) / (t1 - t0);
@@ -93,7 +93,7 @@ void main()
         }
     }
 
-    float aSphereness = 0.0;
+    float aSphereness = 1.0;
     float aScale = 1.0;
 
     // Transform the vertex

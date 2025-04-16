@@ -30,16 +30,6 @@ enum class EasingType : int {
 };
 
 const int TRANS_KEYFRAMES = 170; // Fixed keyframe count per instance
-struct Float4Keyframe {
-    float value[4];
-    float time;
-    EasingType easing = EasingType::LINEAR;
-};
-struct Float3Keyframe {
-    float value[3];
-    float time;
-    EasingType easing = EasingType::LINEAR;
-};
 
 struct InstanceDataStill {
     float color[4];
@@ -51,7 +41,7 @@ struct InstanceDataTrans {
     float maxDuration;
     EasingType easing;
     int keyframeCount;
-    float times[TRANS_KEYFRAMES];
+    float startTimes[TRANS_KEYFRAMES];
     int endIdxs[TRANS_KEYFRAMES];
 };
 
@@ -170,7 +160,7 @@ int main()
     int fileIdx = 0;
     const float CHANNEL_DIST = 1.;
     const float LAYER_DIST = 1.;
-    const float LAYER_DURATION = 20.;
+    const float LAYER_DURATION = 5.;
     const float LAYER_DELAY = 1;
 
     for (const auto& path : sel_files) {
@@ -227,8 +217,8 @@ int main()
                     int x2 = x/2;
                     int endFlatIdx = chanFlatIdx0 + (y2*nColsNextLayer) + x2;
                     transData->endIdxs[chanIdx] = endFlatIdx;
-                    float a = (float)(chanIdx+1) / nChansNextLayer;
-                    transData->times[chanIdx] = chanStartTime;
+                    float a = glm::sin((float)y2/nColsNextLayer * glm::pi<float>()/2);
+                    transData->startTimes[chanIdx] = glm::mix(chanStartTime, chanEndTime, a/2);
                     transData->keyframeCount++;
                     ++chanIdx;
                 }
@@ -339,7 +329,7 @@ int main()
     auto startTime = chrono::steady_clock::now();
     float currentTime, prevTime;
     float fps = 10.;
-    float maxTime = 2;
+    float maxTime = 6;
     while (!glfwWindowShouldClose(window))
     {
         double t0Loop = (double)cv::getTickCount();
