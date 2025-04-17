@@ -47,6 +47,7 @@ uniform mat4 view;
 uniform mat4 projection;
 uniform float currentTime;
 uniform bool isStill;
+uniform bool isOutline;
 
 // Outs
 out vec4 fColor;
@@ -57,7 +58,7 @@ void main()
     int instanceID = gl_InstanceID;
 
     // Compute properties
-    vec3 aOffset = vec3(0, 0, 0);  // Default values
+    vec3 aOffset = vec3(0, 0, -999999);  // Default values
     vec4 aColor = vec4(0, 0, 0, 0);
     if (isStill) {
         InstanceDataStill stillInstance = instancesStill[instanceID];
@@ -93,19 +94,21 @@ void main()
         }
     }
 
-    float aSphereness = 1.0;
+    float aSphereness = 0.0;
     float aScale = 1.0;
 
+    if (!isOutline) aScale *= 0.8;
+
     // Transform the vertex
-    vec4 cubePos = vec4(aPos, 1.0);
-    vec4 spherePos = vec4(normalize(vec3(cubePos)) / 2, 1.0);
+    vec3 cubePos = aPos;
+    vec3 spherePos = normalize(vec3(cubePos)) / 2;
     vec3 cubeNormal = aNormal;
-    vec3 sphereNormal = normalize(vec3(spherePos));
-    vec4 pos = mix(cubePos, spherePos, aSphereness);
+    vec3 sphereNormal = normalize(spherePos);
+    vec3 pos = mix(cubePos, spherePos, aSphereness);
 
     vec3 normal = normalize(mix(cubeNormal, sphereNormal, aSphereness));
 
-    gl_Position = projection * view * model * (aScale * pos + vec4(aOffset, 1.0));
+    gl_Position = projection * view * model * vec4((aScale * pos) + aOffset, 1.0);
     fColor = aColor;
     fNormal = normal;
 }

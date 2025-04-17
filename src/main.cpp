@@ -127,7 +127,6 @@ int main()
     Shader shader("../shaders/vertex.shader", "../shaders/fragment.shader");
     Shader screenShader("../shaders/quad_tex_vertex.shader", "../shaders/quad_tex_fragment.shader");
 
-    // generate a list of 100 cube locations/translation-vectors
     // ---------------------------------------------------------
     set<fs::path> sorted_files;
     for (auto &entry : fs::directory_iterator("../scripts/layer_outputs")) {
@@ -328,8 +327,8 @@ int main()
     int frameCount = 0;
     auto startTime = chrono::steady_clock::now();
     float currentTime, prevTime;
-    float fps = 10.;
-    float maxTime = 6;
+    float fps = 1.;
+    float maxTime = 15;
     while (!glfwWindowShouldClose(window))
     {
         double t0Loop = (double)cv::getTickCount();
@@ -350,7 +349,9 @@ int main()
 
         // camera/view transformation
         //glm::mat4 view = camera.GetViewMatrix();
-        glm::vec3 camPos{-50.f, 0.f, 150.f};
+        // glm::vec3 camPos{-56.f, 56.f, 20.f};
+        // glm::vec3 camLookAt{-56.f, 56.f, 0.f};
+        glm::vec3 camPos{-250.f, 0.f, 350.f};
         glm::vec3 camLookAt{0.f, 0.f, 0.f};
         glm::vec3 camUp{0.f, 1.f, 0.f};
         glm::mat4 view = glm::lookAt(camPos, camLookAt, camUp);
@@ -366,10 +367,23 @@ int main()
         glm::mat4 model = glm::mat4(1.0f);
         shader.setMat4("model", model);
         glBindVertexArray(cubeVAO);
+
+        // Draw white borders
+        glCullFace(GL_FRONT);
+        shader.setBool("isOutline", true);
         shader.setBool("isStill", false);  // Transition cubes
         glDrawArraysInstanced(GL_TRIANGLES, 0, cube.getNumIndices(), numCubes);
         shader.setInt("isStill", true);  // Still cubes
         glDrawArraysInstanced(GL_TRIANGLES, 0, cube.getNumIndices(), numCubes);
+        glCullFace(GL_BACK);
+
+        // Draw colored cubes
+        shader.setBool("isOutline", false);
+        shader.setBool("isStill", false);  // Transition cubes
+        glDrawArraysInstanced(GL_TRIANGLES, 0, cube.getNumIndices(), numCubes);
+        shader.setInt("isStill", true);  // Still cubes
+        glDrawArraysInstanced(GL_TRIANGLES, 0, cube.getNumIndices(), numCubes);
+
         //glDrawArrays(GL_TRIANGLES, 0, cube.getNumIndices());
         glBindVertexArray(0);
 
@@ -393,6 +407,10 @@ int main()
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
         // glfwSwapBuffers(window);
+
+        ++frameCount;
+        glfwPollEvents();
+
         double t1Loop = (double)cv::getTickCount();
         double tLoop = (t1Loop - t0Loop) / cv::getTickFrequency();
         std::cout << "tLoop: " << tLoop << " s" << std::endl;
@@ -402,9 +420,6 @@ int main()
             cout << currentTime << endl;
             if (frameCount/fps >= maxTime) break;
         }
-
-        ++frameCount;
-        glfwPollEvents();
     }
 
     // optional: de-allocate all resources once they've outlived their purpose:
