@@ -325,10 +325,11 @@ int main()
     // -----------
     bool saveFrame = true;
     int frameCount = 0;
+    int startFrame = 0;
     auto startTime = chrono::steady_clock::now();
     float currentTime, prevTime;
-    float fps = 1.;
-    float maxTime = 15;
+    float fps = 60.;
+    float maxTime = ((float)startFrame/fps) + 40;
     while (!glfwWindowShouldClose(window))
     {
         double t0Loop = (double)cv::getTickCount();
@@ -351,8 +352,8 @@ int main()
         //glm::mat4 view = camera.GetViewMatrix();
         // glm::vec3 camPos{-56.f, 56.f, 20.f};
         // glm::vec3 camLookAt{-56.f, 56.f, 0.f};
-        glm::vec3 camPos{-250.f, 0.f, 350.f};
-        glm::vec3 camLookAt{0.f, 0.f, 0.f};
+        glm::vec3 camPos{-270.f, 0.f, 550.f};
+        glm::vec3 camLookAt{0.f, 0.f, 320.f};
         glm::vec3 camUp{0.f, 1.f, 0.f};
         glm::mat4 view = glm::lookAt(camPos, camLookAt, camUp);
 
@@ -360,7 +361,7 @@ int main()
         shader.setMat4("view", view);
         prevTime = currentTime;
         // currentTime = (chrono::duration<double>(chrono::steady_clock::now() - startTime)).count();
-        currentTime = frameCount / fps;
+        currentTime = ((float) startFrame + frameCount) / fps;
         shader.setFloat("currentTime", currentTime);
 
         // world transformation
@@ -408,7 +409,6 @@ int main()
         // -------------------------------------------------------------------------------
         // glfwSwapBuffers(window);
 
-        ++frameCount;
         glfwPollEvents();
 
         double t1Loop = (double)cv::getTickCount();
@@ -418,8 +418,10 @@ int main()
         if (saveFrame) {
             saveFrameBuffer(str(boost::format("frames/frame_%04d.png") % frameCount));
             cout << currentTime << endl;
-            if (frameCount/fps >= maxTime) break;
+            if ((startFrame + frameCount)/fps >= maxTime) break;
         }
+
+        ++frameCount;
     }
 
     // optional: de-allocate all resources once they've outlived their purpose:
